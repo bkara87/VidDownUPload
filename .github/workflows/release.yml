@@ -1,0 +1,53 @@
+name: Auto Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build Executable & Installer
+        run: |
+          python build_installer.py
+
+      - name: Get Release Version Tag
+        id: get_version
+        run: |
+          $ver = (Get-Content version.json | ConvertFrom-Json).version
+          echo "VERSION=v$ver" >> $env:GITHUB_ENV
+          echo "SETUP_EXE=dist/VidDownUPload_Setup_v$ver.exe" >> $env:GITHUB_ENV
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/VidDownUPload_Setup_*.exe
+            dist/VidDownUPload/VidDownUPload.exe
+          name: VidDownUPload ${{ env.VERSION }}
+          draft: false
+          prerelease: false
+          body: |
+             VidDownUPload Otomatik Güncelleme Paketi (${{ env.VERSION }})
+            - En son arayüz geliştirmeleri, performans güncellemeleri ve hata düzeltmeleri içerir.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
