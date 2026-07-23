@@ -11,8 +11,10 @@ def build():
         "--noconfirm",
         "--onedir",
         "--windowed",
+        "--icon=assets/icon.ico",
         "--name", "VidDownUPload",
         "--add-data", "src;src",
+        "--add-data", "assets;assets",
         "main.py"
     ]
     

@@ -21,10 +21,26 @@ class MainWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
 
+        # Windows AppUserModelID for taskbar icon grouping
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("BURAKKARABULUT87.VidDownUPload.App.1.0")
+        except Exception:
+            pass
+
         self.title(f"{APP_NAME} - Video İndirici & Filigran Düzenleyici (v{APP_VERSION})")
         self.geometry("980x750")
         self.minsize(850, 650)
         self.configure(fg_color=COLOR_BG_DARK)
+
+        # Set Window Icon
+        from src.config import BASE_DIR
+        icon_path = BASE_DIR / "assets" / "icon.ico"
+        if icon_path.exists():
+            try:
+                self.iconbitmap(str(icon_path))
+            except Exception:
+                pass
 
         self.downloader = VideoDownloader(str(DOWNLOADS_DIR))
         self.processor = VideoProcessor()
@@ -36,7 +52,7 @@ class MainWindow(ctk.CTk):
     def _build_ui(self):
         # Header Bar
         header = ctk.CTkFrame(self, fg_color=COLOR_CARD_BG, corner_radius=12, border_width=1, border_color=COLOR_CARD_BORDER)
-        header.pack(fill="x", px=20, py=(15, 10))
+        header.pack(fill="x", padx=20, pady=(15, 10))
 
         title_label = ctk.CTkLabel(
             header,
@@ -44,7 +60,7 @@ class MainWindow(ctk.CTk):
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color=COLOR_TEXT_MAIN
         )
-        title_label.pack(side="left", px=15, py=12)
+        title_label.pack(side="left", padx=15, pady=12)
 
         subtitle_label = ctk.CTkLabel(
             header,
@@ -52,7 +68,7 @@ class MainWindow(ctk.CTk):
             font=ctk.CTkFont(size=12),
             text_color=COLOR_TEXT_MUTED
         )
-        subtitle_label.pack(side="left", px=10, py=12)
+        subtitle_label.pack(side="left", padx=10, pady=12)
 
         self.btn_update = ctk.CTkButton(
             header,
@@ -62,22 +78,22 @@ class MainWindow(ctk.CTk):
             corner_radius=8,
             command=self._check_for_updates_async
         )
-        self.btn_update.pack(side="right", px=15, py=12)
+        self.btn_update.pack(side="right", padx=15, pady=12)
 
         # Main Layout Container
         main_container = ctk.CTkFrame(self, fg_color="transparent")
-        main_container.pack(fill="both", expand=True, px=20, py=5)
+        main_container.pack(fill="both", expand=True, padx=20, pady=5)
 
         # Left Column: Downloader & Processing
         left_frame = ctk.CTkFrame(main_container, fg_color="transparent")
-        left_frame.pack(side="left", fill="both", expand=True, pr=10)
+        left_frame.pack(side="left", fill="both", expand=True, padx=(0, 10))
 
         # 1. Video Download Card
         card_download = ctk.CTkFrame(left_frame, fg_color=COLOR_CARD_BG, corner_radius=12, border_width=1, border_color=COLOR_CARD_BORDER)
-        card_download.pack(fill="x", py=(0, 10))
+        card_download.pack(fill="x", pady=(0, 10))
 
         lbl_dl = ctk.CTkLabel(card_download, text="📥 1. Video İndirme", font=ctk.CTkFont(size=16, weight="bold"), text_color=COLOR_TEXT_MAIN)
-        lbl_dl.pack(anchor="w", px=15, py=(12, 5))
+        lbl_dl.pack(anchor="w", padx=15, pady=(12, 5))
 
         self.entry_url = ctk.CTkEntry(
             card_download,
@@ -85,10 +101,10 @@ class MainWindow(ctk.CTk):
             height=40,
             corner_radius=8
         )
-        self.entry_url.pack(fill="x", px=15, py=5)
+        self.entry_url.pack(fill="x", padx=15, pady=5)
 
         dl_btn_frame = ctk.CTkFrame(card_download, fg_color="transparent")
-        dl_btn_frame.pack(fill="x", px=15, py=(5, 12))
+        dl_btn_frame.pack(fill="x", padx=15, pady=(5, 12))
 
         self.btn_download = ctk.CTkButton(
             dl_btn_frame,
@@ -99,50 +115,50 @@ class MainWindow(ctk.CTk):
             corner_radius=8,
             command=self._start_download_thread
         )
-        self.btn_download.pack(side="left", fill="x", expand=True, pr=5)
+        self.btn_download.pack(side="left", fill="x", expand=True, padx=(0, 5))
 
         # 2. Watermark & Processing Card
         card_process = ctk.CTkFrame(left_frame, fg_color=COLOR_CARD_BG, corner_radius=12, border_width=1, border_color=COLOR_CARD_BORDER)
-        card_process.pack(fill="both", expand=True, py=5)
+        card_process.pack(fill="both", expand=True, pady=5)
 
         lbl_proc = ctk.CTkLabel(card_process, text="🎨 2. Filigran Maskeleme & Logo Ekleme", font=ctk.CTkFont(size=16, weight="bold"), text_color=COLOR_TEXT_MAIN)
-        lbl_proc.pack(anchor="w", px=15, py=(12, 5))
+        lbl_proc.pack(anchor="w", padx=15, pady=(12, 5))
 
         # Checkbox: Cover old watermark
         self.chk_mask = ctk.CTkCheckBox(card_process, text="Eski Filigranı Kapat / Flulaştır (Blur Box)")
-        self.chk_mask.pack(anchor="w", px=15, py=5)
+        self.chk_mask.pack(anchor="w", padx=15, pady=5)
         self.chk_mask.select()
 
         mask_pos_frame = ctk.CTkFrame(card_process, fg_color="transparent")
-        mask_pos_frame.pack(fill="x", px=15, py=2)
+        mask_pos_frame.pack(fill="x", padx=15, pady=2)
         ctk.CTkLabel(mask_pos_frame, text="Maskeleme Konumu:", text_color=COLOR_TEXT_MUTED).pack(side="left")
         self.combo_mask_pos = ctk.CTkComboBox(mask_pos_frame, values=["Sağ Alt (Instagram/TikTok)", "Sol Üst", "Sağ Üst", "Sol Alt"])
-        self.combo_mask_pos.pack(side="left", px=10)
+        self.combo_mask_pos.pack(side="left", padx=10)
 
         # Checkbox & controls: Add custom logo
         self.chk_logo = ctk.CTkCheckBox(card_process, text="Yeni Logo / Filigran Görseli Ekle")
-        self.chk_logo.pack(anchor="w", px=15, py=(10, 5))
+        self.chk_logo.pack(anchor="w", padx=15, pady=(10, 5))
         self.chk_logo.select()
 
         logo_file_frame = ctk.CTkFrame(card_process, fg_color="transparent")
-        logo_file_frame.pack(fill="x", px=15, py=2)
+        logo_file_frame.pack(fill="x", padx=15, pady=2)
 
         self.entry_logo_path = ctk.CTkEntry(logo_file_frame, placeholder_text="Logo Dosyası Seçin (.png)", height=32)
-        self.entry_logo_path.pack(side="left", fill="x", expand=True, pr=5)
+        self.entry_logo_path.pack(side="left", fill="x", expand=True, padx=(0, 5))
 
         self.btn_select_logo = ctk.CTkButton(logo_file_frame, text="Gözat...", width=80, height=32, command=self._browse_logo)
         self.btn_select_logo.pack(side="right")
 
         logo_options_frame = ctk.CTkFrame(card_process, fg_color="transparent")
-        logo_options_frame.pack(fill="x", px=15, py=5)
+        logo_options_frame.pack(fill="x", padx=15, pady=5)
 
         ctk.CTkLabel(logo_options_frame, text="Logo Konumu:", text_color=COLOR_TEXT_MUTED).pack(side="left")
         self.combo_logo_pos = ctk.CTkComboBox(logo_options_frame, values=["Sağ Alt", "Sol Üst", "Sağ Üst", "Sol Alt", "Orta"])
-        self.combo_logo_pos.pack(side="left", px=10)
+        self.combo_logo_pos.pack(side="left", padx=10)
 
         # Text Watermark Entry
         self.entry_text_wm = ctk.CTkEntry(card_process, placeholder_text="İsteğe Bağlı Yazı Filigranı (ör: @SayfaAdiniz)", height=34)
-        self.entry_text_wm.pack(fill="x", px=15, py=(10, 5))
+        self.entry_text_wm.pack(fill="x", padx=15, pady=(10, 5))
 
         self.btn_process = ctk.CTkButton(
             card_process,
@@ -153,17 +169,17 @@ class MainWindow(ctk.CTk):
             corner_radius=8,
             command=self._start_process_thread
         )
-        self.btn_process.pack(fill="x", px=15, py=12)
+        self.btn_process.pack(fill="x", padx=15, pady=12)
 
         # Right Column: Social Media Auto-Publisher (Phase 2 placeholder) & Log
         right_frame = ctk.CTkFrame(main_container, fg_color="transparent")
-        right_frame.pack(side="right", fill="both", expand=True, pl=10)
+        right_frame.pack(side="right", fill="both", expand=True, padx=(10, 0))
 
         card_pub = ctk.CTkFrame(right_frame, fg_color=COLOR_CARD_BG, corner_radius=12, border_width=1, border_color=COLOR_CARD_BORDER)
-        card_pub.pack(fill="x", py=(0, 10))
+        card_pub.pack(fill="x", pady=(0, 10))
 
         lbl_pub = ctk.CTkLabel(card_pub, text="🚀 3. Otomatik Paylaşım (Instagram & YouTube)", font=ctk.CTkFont(size=16, weight="bold"), text_color=COLOR_TEXT_MAIN)
-        lbl_pub.pack(anchor="w", px=15, py=(12, 5))
+        lbl_pub.pack(anchor="w", padx=15, pady=(12, 5))
 
         pub_info = ctk.CTkLabel(
             card_pub,
@@ -172,17 +188,17 @@ class MainWindow(ctk.CTk):
             text_color=COLOR_WARNING,
             justify="left"
         )
-        pub_info.pack(anchor="w", px=15, py=(0, 12))
+        pub_info.pack(anchor="w", padx=15, pady=(0, 12))
 
         # Terminal / Log Box Card
         card_log = ctk.CTkFrame(right_frame, fg_color=COLOR_CARD_BG, corner_radius=12, border_width=1, border_color=COLOR_CARD_BORDER)
-        card_log.pack(fill="both", expand=True, py=5)
+        card_log.pack(fill="both", expand=True, pady=5)
 
         lbl_log = ctk.CTkLabel(card_log, text="📋 İşlem Günlüğü / Log Console", font=ctk.CTkFont(size=14, weight="bold"), text_color=COLOR_TEXT_MAIN)
-        lbl_log.pack(anchor="w", px=15, py=(10, 5))
+        lbl_log.pack(anchor="w", padx=15, pady=(10, 5))
 
         self.txt_log = ctk.CTkTextbox(card_log, font=ctk.CTkFont(family="Consolas", size=12), fg_color="#090D16", text_color="#A7F3D0")
-        self.txt_log.pack(fill="both", expand=True, px=10, py=(0, 10))
+        self.txt_log.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self.log(f"[{APP_NAME}] Uygulama hazır. Lütfen bir video bağlantısı yapıştırın.")
 
     def log(self, text: str):
