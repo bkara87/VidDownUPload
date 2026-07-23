@@ -58,7 +58,7 @@ def build_installer():
     print(f"[OK] Payload zip created: {payload_zip}")
 
     print("\n==========================================")
-    print("4. Derleniyor: Setup Installer (VidDownUPload_Setup_v1.0.2.exe)")
+    print("4. Derleniyor: Setup Installer (VidDownUPload_Setup_v1.0.3.exe)")
     print("==========================================")
     installer_cmd = [
         python_exe, "-m", "PyInstaller",
@@ -66,7 +66,7 @@ def build_installer():
         "--onefile",
         "--windowed",
         "--icon=assets/icon.ico",
-        "--name", "VidDownUPload_Setup_v1.0.2",
+        "--name", "VidDownUPload_Setup_v1.0.3",
         "--add-data", f"{payload_zip};.",
         "src/installer/installer_gui.py"
     ]
@@ -76,7 +76,7 @@ def build_installer():
     if payload_zip.exists():
         payload_zip.unlink()
 
-    setup_exe = BASE_DIR / "dist" / "VidDownUPload_Setup_v1.0.2.exe"
+    setup_exe = BASE_DIR / "dist" / "VidDownUPload_Setup_v1.0.3.exe"
     print("\n==========================================")
     print(f"[OK] TEBRİKLER! Kurulum Paketi Hazır:")
     print(f"-> Setup Installer: {setup_exe}")

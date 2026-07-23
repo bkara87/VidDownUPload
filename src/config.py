@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "VidDownUPload"
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.0.3"
 
 # Default directories
 BASE_DIR = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).parent.parent

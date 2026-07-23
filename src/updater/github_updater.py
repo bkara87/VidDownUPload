@@ -28,13 +28,19 @@ class GitHubUpdater:
                 
                 # Check version numbers
                 if remote_tag and self._is_newer_version(remote_tag, APP_VERSION):
-                    # Look for .exe asset in release assets
                     assets = data.get("assets", [])
                     exe_url = None
+                    # Prefer Setup EXE installer if available, else standard EXE
                     for asset in assets:
-                        if asset.get("name", "").endswith(".exe"):
+                        asset_name = asset.get("name", "")
+                        if "Setup" in asset_name and asset_name.endswith(".exe"):
                             exe_url = asset.get("browser_download_url")
                             break
+                    if not exe_url:
+                        for asset in assets:
+                            if asset.get("name", "").endswith(".exe"):
+                                exe_url = asset.get("browser_download_url")
+                                break
                     
                     return True, remote_tag, exe_url
         except Exception as e:
@@ -44,13 +50,15 @@ class GitHubUpdater:
 
     def download_and_install_update(self, download_url: str, progress_callback=None) -> bool:
         """
-        Downloads update exe and runs update_bootstrap script to replace current running exe.
+        Downloads update executable/installer and launches it cleanly.
         """
         try:
             base_dir = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).parent.parent.parent
             temp_dir = base_dir / "temp_update"
             temp_dir.mkdir(exist_ok=True)
-            new_exe_path = temp_dir / "VidDownUPload_new.exe"
+            
+            filename = download_url.split("/")[-1] if "/" in download_url else "VidDownUPload_Setup.exe"
+            new_exe_path = temp_dir / filename
 
             response = requests.get(download_url, stream=True)
             total_size = int(response.headers.get('content-length', 0))
@@ -64,14 +72,15 @@ class GitHubUpdater:
                         if progress_callback and total_size > 0:
                             progress_callback(downloaded / total_size)
 
-            # Launch bootstrap updater script to swap executable
-            current_exe = sys.executable if getattr(sys, 'frozen', False) else str(base_dir / "VidDownUPload.exe")
-            bootstrap_script = base_dir / "updater_bootstrap.py"
+            print(f"Update downloaded to {new_exe_path}. Launching installer...")
 
-            cmd = [sys.executable, str(bootstrap_script), "--current", current_exe, "--new", str(new_exe_path), "--pid", str(os.getpid())]
-            subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0)
+            # Launch the downloaded installer or executable
+            if os.name == 'nt':
+                os.startfile(str(new_exe_path))
+            else:
+                subprocess.Popen([str(new_exe_path)])
 
-            # Exit current application so file lock is released
+            # Exit current application so installation/overwrite can proceed
             sys.exit(0)
             return True
 

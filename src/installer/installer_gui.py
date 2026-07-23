@@ -13,7 +13,7 @@ ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
 APP_NAME = "VidDownUPload"
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.0.3"
 PUBLISHER = "BURAKKARABULUT87"
 
 DEFAULT_INSTALL_DIR = Path(os.environ.get("LOCALAPPDATA", r"C:\Users\Public")) / APP_NAME
