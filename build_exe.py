@@ -17,7 +17,7 @@ def build():
     ]
     
     subprocess.run(cmd, check=True)
-    print("\n✅ Build finished successfully! Output binary located in dist/VidDownUPload/VidDownUPload.exe")
+    print("\n[OK] Build finished successfully! Output binary located in dist/VidDownUPload/VidDownUPload.exe")
 
 if __name__ == "__main__":
     build()
