@@ -11,16 +11,18 @@ from src.config import APP_NAME, APP_VERSION, DOWNLOADS_DIR, PROCESSED_DIR, BASE
 from src.downloader.downloader import VideoDownloader
 from src.processor.ffmpeg_utils import VideoProcessor
 from src.updater.github_updater import GitHubUpdater
+from src.ui.video_preview import VideoPreviewWidget
+from src.ui.api_keys_tab import ApiKeysTab
 from src.ui.styles import (
     COLOR_BG_DARK, COLOR_CARD_BG, COLOR_CARD_BORDER, COLOR_PRIMARY, COLOR_PRIMARY_HOVER,
     COLOR_SUCCESS, COLOR_SUCCESS_HOVER, COLOR_WARNING, COLOR_TEXT_MAIN, COLOR_TEXT_MUTED,
     COLOR_TEXT_ACCENT, COLOR_INPUT_BG, COLOR_ACCENT, COLOR_ACCENT_HOVER, COLOR_TAB_BG
 )
 
-# Windows AppUserModelID for taskbar icon grouping
+# Enforce Windows AppUserModelID BEFORE any Tk root window initializes
 try:
     import ctypes
-    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("BURAKKARABULUT87.VidDownUPload.App.1.0.1")
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("BURAKKARABULUT87.VidDownUPload.App.1.0.2")
 except Exception:
     pass
 
@@ -31,9 +33,9 @@ class MainWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title(f"{APP_NAME} Studio - Video İndirici & Filigran Düzenleyici (v{APP_VERSION})")
-        self.geometry("1040x800")
-        self.minsize(940, 700)
+        self.title(f"{APP_NAME} Studio v{APP_VERSION} - Video Downloader, Live Preview & Auto Publisher")
+        self.geometry("1100x840")
+        self.minsize(980, 720)
         self.configure(fg_color=COLOR_BG_DARK)
 
         self.downloader = VideoDownloader(str(DOWNLOADS_DIR))
@@ -42,12 +44,12 @@ class MainWindow(ctk.CTk):
         self.downloaded_video_path = None
         self._app_icon_photo = None
 
-        # Set Window Titlebar & Windows Taskbar Icon
-        self._set_window_icon()
+        # Force Windows Taskbar & Titlebar Icon Override
+        self._force_window_icon()
 
         self._build_ui()
 
-    def _set_window_icon(self):
+    def _force_window_icon(self):
         icon_ico = BASE_DIR / "assets" / "icon.ico"
         icon_png = BASE_DIR / "assets" / "icon.png"
 
@@ -55,20 +57,22 @@ class MainWindow(ctk.CTk):
             try:
                 if icon_ico.exists():
                     self.iconbitmap(str(icon_ico))
+                    self.wm_iconbitmap(str(icon_ico))
             except Exception:
                 pass
 
             try:
                 if icon_png.exists():
-                    img = Image.open(icon_png).resize((32, 32), Image.Resampling.LANCZOS)
+                    img = Image.open(icon_png).resize((64, 64), Image.Resampling.LANCZOS)
                     self._app_icon_photo = ImageTk.PhotoImage(img)
                     self.iconphoto(True, self._app_icon_photo)
             except Exception:
                 pass
 
         apply_icon()
-        self.after(200, apply_icon)
-        self.after(800, apply_icon)
+        self.after(50, apply_icon)
+        self.after(300, apply_icon)
+        self.after(1000, apply_icon)
 
     def _build_ui(self):
         # 1. TOP HEADER BAR
@@ -76,9 +80,9 @@ class MainWindow(ctk.CTk):
         header.pack(fill="x", padx=20, pady=(15, 10))
 
         header_left = ctk.CTkFrame(header, fg_color="transparent")
-        header_left.pack(side="left", padx=18, pady=14)
+        header_left.pack(side="left", padx=18, pady=12)
 
-        # App Logo Image
+        # Header Logo Image
         icon_png_path = BASE_DIR / "assets" / "icon.png"
         if icon_png_path.exists():
             try:
@@ -117,14 +121,14 @@ class MainWindow(ctk.CTk):
 
         lbl_subtitle = ctk.CTkLabel(
             title_box,
-            text="Instagram Reels • YouTube Shorts • TikTok Video Downloader & Watermark Studio",
+            text="Instagram • YouTube • TikTok Downloader, Live Preview Studio & Auto Publisher",
             font=ctk.CTkFont(size=12),
             text_color=COLOR_TEXT_MUTED
         )
         lbl_subtitle.pack(anchor="w", pady=(2, 0))
 
         header_right = ctk.CTkFrame(header, fg_color="transparent")
-        header_right.pack(side="right", padx=18, pady=14)
+        header_right.pack(side="right", padx=18, pady=12)
 
         self.btn_update = ctk.CTkButton(
             header_right,
@@ -154,11 +158,13 @@ class MainWindow(ctk.CTk):
         self.tabview.pack(fill="both", expand=True, padx=20, pady=(0, 10))
 
         self.tab_download = self.tabview.add("📥 Video İndirici")
-        self.tab_studio = self.tabview.add("🎨 Filigran & Logo Stüdyosu")
+        self.tab_studio = self.tabview.add("🎨 Canlı Önizleme & Filigran Stüdyosu")
+        self.tab_api = self.tabview.add("🚀 Otomatik Paylaşım & API Yönetimi")
         self.tab_settings = self.tabview.add("⚙️ Ayarlar & Sistem")
 
         self._build_download_tab()
         self._build_studio_tab()
+        self._build_api_tab()
         self._build_settings_tab()
 
         # 3. BOTTOM LIVE LOG TERMINAL BAR
@@ -176,7 +182,7 @@ class MainWindow(ctk.CTk):
 
         self.txt_log = ctk.CTkTextbox(
             log_frame,
-            height=100,
+            height=90,
             font=ctk.CTkFont(family="Consolas", size=11),
             fg_color="#070B12",
             text_color="#A7F3D0",
@@ -263,95 +269,115 @@ class MainWindow(ctk.CTk):
     def _build_studio_tab(self):
         tab = self.tab_studio
 
-        lbl_title = ctk.CTkLabel(tab, text="🎨 Filigran Maskeleme & Logo Stüdyosu", font=ctk.CTkFont(size=18, weight="bold"), text_color=COLOR_TEXT_MAIN)
-        lbl_title.pack(anchor="w", padx=20, pady=(15, 5))
+        # Grid Layout: Left Controls, Right Real-time Video Preview Widget
+        container = ctk.CTkFrame(tab, fg_color="transparent")
+        container.pack(fill="both", expand=True, padx=10, pady=10)
+
+        left_controls = ctk.CTkFrame(container, fg_color="transparent")
+        left_controls.pack(side="left", fill="both", expand=True, padx=(0, 10))
+
+        right_preview = ctk.CTkFrame(container, fg_color="transparent")
+        right_preview.pack(side="right", fill="both", expand=False)
+
+        # Interactive Video Preview Widget Component
+        ctk.CTkLabel(right_preview, text="🎬 Canlı Video & Filigran Önizleme", font=ctk.CTkFont(size=14, weight="bold"), text_color=COLOR_TEXT_MAIN).pack(anchor="w", pady=(0, 6))
+        self.video_preview = VideoPreviewWidget(right_preview, width=440, height=360)
+        self.video_preview.pack(fill="both", expand=True)
+
+        # Controls on Left
+        lbl_title = ctk.CTkLabel(left_controls, text="🎨 Canlı Önizlemeli Filigran & Logo Stüdyosu", font=ctk.CTkFont(size=16, weight="bold"), text_color=COLOR_TEXT_MAIN)
+        lbl_title.pack(anchor="w", pady=(0, 8))
 
         # Preset Quick Select Buttons
-        presets_frame = ctk.CTkFrame(tab, fg_color="transparent")
-        presets_frame.pack(fill="x", padx=20, pady=(0, 12))
+        presets_frame = ctk.CTkFrame(left_controls, fg_color="transparent")
+        presets_frame.pack(fill="x", pady=(0, 10))
 
-        ctk.CTkLabel(presets_frame, text="Hızlı Şablonlar:", font=ctk.CTkFont(size=12, weight="bold"), text_color=COLOR_TEXT_MUTED).pack(side="left", padx=(0, 10))
+        ctk.CTkLabel(presets_frame, text="Hızlı Şablonlar:", font=ctk.CTkFont(size=12, weight="bold"), text_color=COLOR_TEXT_MUTED).pack(side="left", padx=(0, 8))
+        btn_p1 = ctk.CTkButton(presets_frame, text="📸 Reels", width=80, height=28, font=ctk.CTkFont(size=11), fg_color="#1E293B", hover_color="#334155", command=lambda: self._apply_preset("reels"))
+        btn_p1.pack(side="left", padx=2)
+        btn_p2 = ctk.CTkButton(presets_frame, text="🎵 TikTok", width=80, height=28, font=ctk.CTkFont(size=11), fg_color="#1E293B", hover_color="#334155", command=lambda: self._apply_preset("tiktok"))
+        btn_p2.pack(side="left", padx=2)
+        btn_p3 = ctk.CTkButton(presets_frame, text="▶️ Shorts", width=80, height=28, font=ctk.CTkFont(size=11), fg_color="#1E293B", hover_color="#334155", command=lambda: self._apply_preset("shorts"))
+        btn_p3.pack(side="left", padx=2)
 
-        btn_p1 = ctk.CTkButton(presets_frame, text="📸 Instagram Reels Preset", width=140, height=30, font=ctk.CTkFont(size=11), fg_color="#1E293B", hover_color="#334155", command=lambda: self._apply_preset("reels"))
-        btn_p1.pack(side="left", padx=4)
+        # Mask Control Box
+        card_mask = ctk.CTkFrame(left_controls, fg_color="#0B101D", corner_radius=12, border_width=1, border_color="#1E293B")
+        card_mask.pack(fill="x", pady=4)
 
-        btn_p2 = ctk.CTkButton(presets_frame, text="🎵 TikTok Preset", width=110, height=30, font=ctk.CTkFont(size=11), fg_color="#1E293B", hover_color="#334155", command=lambda: self._apply_preset("tiktok"))
-        btn_p2.pack(side="left", padx=4)
-
-        btn_p3 = ctk.CTkButton(presets_frame, text="▶️ YouTube Shorts Preset", width=140, height=30, font=ctk.CTkFont(size=11), fg_color="#1E293B", hover_color="#334155", command=lambda: self._apply_preset("shorts"))
-        btn_p3.pack(side="left", padx=4)
-
-        # 1. Watermark Mask Box Control
-        card_mask = ctk.CTkFrame(tab, fg_color="#0B101D", corner_radius=12, border_width=1, border_color="#1E293B")
-        card_mask.pack(fill="x", padx=20, pady=6)
-
-        self.chk_mask = ctk.CTkCheckBox(card_mask, text="Eski Filigranı Kapat / Flulaştır (Blur Box)", font=ctk.CTkFont(size=13, weight="bold"), border_color=COLOR_PRIMARY)
-        self.chk_mask.pack(anchor="w", padx=16, pady=(12, 6))
+        self.chk_mask = ctk.CTkCheckBox(card_mask, text="Eski Filigranı Kapat (Blur Box)", font=ctk.CTkFont(size=12, weight="bold"), border_color=COLOR_PRIMARY, command=self._trigger_live_preview)
+        self.chk_mask.pack(anchor="w", padx=14, pady=(8, 4))
         self.chk_mask.select()
 
         mask_options = ctk.CTkFrame(card_mask, fg_color="transparent")
-        mask_options.pack(fill="x", padx=16, pady=(0, 12))
+        mask_options.pack(fill="x", padx=14, pady=(0, 8))
 
-        ctk.CTkLabel(mask_options, text="Maskeleme Konumu:", text_color=COLOR_TEXT_MUTED, font=ctk.CTkFont(size=12)).pack(side="left")
+        ctk.CTkLabel(mask_options, text="Maskeleme Konumu:", text_color=COLOR_TEXT_MUTED, font=ctk.CTkFont(size=11)).pack(side="left")
         self.combo_mask_pos = ctk.CTkComboBox(
             mask_options,
             values=["Sağ Alt (Instagram/TikTok)", "Sol Üst", "Sağ Üst", "Sol Alt"],
             dropdown_fg_color=COLOR_CARD_BG,
             corner_radius=8,
-            width=220
+            width=180,
+            command=lambda _: self._trigger_live_preview()
         )
-        self.combo_mask_pos.pack(side="left", padx=10)
+        self.combo_mask_pos.pack(side="left", padx=8)
 
-        # 2. Custom Logo Overlay Control
-        card_logo = ctk.CTkFrame(tab, fg_color="#0B101D", corner_radius=12, border_width=1, border_color="#1E293B")
-        card_logo.pack(fill="x", padx=20, pady=6)
+        # Custom Logo Control Box
+        card_logo = ctk.CTkFrame(left_controls, fg_color="#0B101D", corner_radius=12, border_width=1, border_color="#1E293B")
+        card_logo.pack(fill="x", pady=4)
 
-        self.chk_logo = ctk.CTkCheckBox(card_logo, text="Yeni Sayfa Logosu / Filigran Görseli Ekle", font=ctk.CTkFont(size=13, weight="bold"), border_color=COLOR_PRIMARY)
-        self.chk_logo.pack(anchor="w", padx=16, pady=(12, 6))
+        self.chk_logo = ctk.CTkCheckBox(card_logo, text="Kendi Logonuzu / Görseli Ekle", font=ctk.CTkFont(size=12, weight="bold"), border_color=COLOR_PRIMARY, command=self._trigger_live_preview)
+        self.chk_logo.pack(anchor="w", padx=14, pady=(8, 4))
         self.chk_logo.select()
 
         logo_file_frame = ctk.CTkFrame(card_logo, fg_color="transparent")
-        logo_file_frame.pack(fill="x", padx=16, pady=4)
+        logo_file_frame.pack(fill="x", padx=14, pady=2)
 
-        self.entry_logo_path = ctk.CTkEntry(logo_file_frame, placeholder_text="Logo PNG Görseli Seçin (.png)", height=38, corner_radius=8, fg_color=COLOR_INPUT_BG)
-        self.entry_logo_path.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.entry_logo_path = ctk.CTkEntry(logo_file_frame, placeholder_text="Logo PNG Dosyası (.png)", height=34, corner_radius=8, fg_color=COLOR_INPUT_BG)
+        self.entry_logo_path.pack(side="left", fill="x", expand=True, padx=(0, 6))
 
-        self.btn_select_logo = ctk.CTkButton(logo_file_frame, text="📁 Görsel Seç", width=100, height=38, corner_radius=8, fg_color="#334155", hover_color="#475569", command=self._browse_logo)
+        self.btn_select_logo = ctk.CTkButton(logo_file_frame, text="📁 Görsel Seç", width=90, height=34, corner_radius=8, fg_color="#334155", hover_color="#475569", command=self._browse_logo)
         self.btn_select_logo.pack(side="right")
 
         logo_options = ctk.CTkFrame(card_logo, fg_color="transparent")
-        logo_options.pack(fill="x", padx=16, pady=(4, 12))
+        logo_options.pack(fill="x", padx=14, pady=(2, 8))
 
-        ctk.CTkLabel(logo_options, text="Logo Konumu:", text_color=COLOR_TEXT_MUTED, font=ctk.CTkFont(size=12)).pack(side="left")
+        ctk.CTkLabel(logo_options, text="Logo Konumu:", text_color=COLOR_TEXT_MUTED, font=ctk.CTkFont(size=11)).pack(side="left")
         self.combo_logo_pos = ctk.CTkComboBox(
             logo_options,
             values=["Sağ Alt", "Sol Üst", "Sağ Üst", "Sol Alt", "Orta"],
             dropdown_fg_color=COLOR_CARD_BG,
             corner_radius=8,
-            width=160
+            width=140,
+            command=lambda _: self._trigger_live_preview()
         )
-        self.combo_logo_pos.pack(side="left", padx=10)
+        self.combo_logo_pos.pack(side="left", padx=8)
 
-        # 3. Text Watermark Control
-        self.entry_text_wm = ctk.CTkEntry(tab, placeholder_text="İsteğe Bağlı Yazı Filigranı (ör: @SayfaAdiniz)", height=40, corner_radius=10, fg_color=COLOR_INPUT_BG)
-        self.entry_text_wm.pack(fill="x", padx=20, pady=(6, 12))
+        # Text Watermark Entry
+        self.entry_text_wm = ctk.CTkEntry(left_controls, placeholder_text="İsteğe Bağlı Yazı Filigranı (ör: @SayfaAdiniz)", height=36, corner_radius=8, fg_color=COLOR_INPUT_BG)
+        self.entry_text_wm.pack(fill="x", pady=4)
+        self.entry_text_wm.bind("<KeyRelease>", lambda _: self._trigger_live_preview())
 
         # Main Process Action Button
         self.btn_process = ctk.CTkButton(
-            tab,
+            left_controls,
             text="✨ Videoyu İşle ve Yüksek Kalitede Kaydet",
             fg_color=COLOR_SUCCESS,
             hover_color=COLOR_SUCCESS_HOVER,
-            font=ctk.CTkFont(size=15, weight="bold"),
-            height=46,
-            corner_radius=12,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            height=44,
+            corner_radius=10,
             command=self._start_process_thread
         )
-        self.btn_process.pack(fill="x", padx=20, pady=4)
+        self.btn_process.pack(fill="x", pady=(8, 4))
 
-        self.progress_process = ctk.CTkProgressBar(tab, mode="indeterminate", height=8, corner_radius=4)
-        self.progress_process.pack(fill="x", padx=20, pady=(6, 10))
+        self.progress_process = ctk.CTkProgressBar(left_controls, mode="indeterminate", height=6, corner_radius=3)
+        self.progress_process.pack(fill="x", pady=(2, 4))
         self.progress_process.set(0)
+
+    def _build_api_tab(self):
+        self.tab_api_keys = ApiKeysTab(self.tab_api, log_callback=self.log)
+        self.tab_api_keys.pack(fill="both", expand=True)
 
     def _build_settings_tab(self):
         tab = self.tab_settings
@@ -380,6 +406,17 @@ class MainWindow(ctk.CTk):
 
         ctk.CTkLabel(card_upd, text="🔄 GitHub Otomatik Güncelleme Bilgisi", font=ctk.CTkFont(size=14, weight="bold"), text_color=COLOR_TEXT_MAIN).pack(anchor="w", padx=16, pady=(12, 6))
         ctk.CTkLabel(card_upd, text=f"Mevcut Yüklü Sürüm: v{APP_VERSION}\nDepo: BURAKKARABULUT87/VidDownUPload", font=ctk.CTkFont(size=12), text_color=COLOR_TEXT_MUTED, justify="left").pack(anchor="w", padx=16, pady=(0, 12))
+
+    def _trigger_live_preview(self):
+        if hasattr(self, 'video_preview'):
+            self.video_preview.update_preview(
+                mask_enabled=self.chk_mask.get(),
+                mask_pos=self.combo_mask_pos.get(),
+                logo_enabled=self.chk_logo.get(),
+                logo_path=self.entry_logo_path.get().strip(),
+                logo_pos=self.combo_logo_pos.get(),
+                text_wm=self.entry_text_wm.get().strip()
+            )
 
     def log(self, text: str):
         self.txt_log.insert("end", f"{text}\n")
@@ -422,13 +459,15 @@ class MainWindow(ctk.CTk):
             self.chk_logo.select()
             self.combo_logo_pos.set("Sol Üst")
             self.log("✅ YouTube Shorts şablonu uygulandı.")
-        self.tabview.set("🎨 Filigran & Logo Stüdyosu")
+        self.tabview.set("🎨 Canlı Önizleme & Filigran Stüdyosu")
+        self._trigger_live_preview()
 
     def _browse_logo(self):
         filename = filedialog.askopenfilename(title="Logo PNG Dosyası Seç", filetypes=[("Görsel Dosyaları", "*.png *.jpg *.jpeg")])
         if filename:
             self.entry_logo_path.delete(0, "end")
             self.entry_logo_path.insert(0, filename)
+            self._trigger_live_preview()
 
     def _start_download_thread(self):
         url = self.entry_url.get().strip()
@@ -447,6 +486,8 @@ class MainWindow(ctk.CTk):
                 self.downloaded_video_path = path
                 self.log(f"✅ İndirme Tamamlandı! Dosya: {os.path.basename(path)}")
                 messagebox.showinfo("Başarılı", f"Video başarıyla indirildi:\n{os.path.basename(path)}")
+                # Load Video Frame into Live Preview
+                self.after(100, lambda: self._load_downloaded_preview(path))
             else:
                 self.log("❌ İndirme başarısız veya dosya yolu alınamadı.")
         except Exception as e:
@@ -455,6 +496,11 @@ class MainWindow(ctk.CTk):
             self.progress_download.stop()
             self.progress_download.set(0)
             self.btn_download.configure(state="normal", text="⚡ Videoyu Yüksek Kalitede İndir")
+
+    def _load_downloaded_preview(self, video_path):
+        self.video_preview.load_video(video_path)
+        self._trigger_live_preview()
+        self.tabview.set("🎨 Canlı Önizleme & Filigran Stüdyosu")
 
     def _start_process_thread(self):
         if not self.downloaded_video_path or not os.path.exists(self.downloaded_video_path):
