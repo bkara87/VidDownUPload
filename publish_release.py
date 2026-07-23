@@ -79,7 +79,7 @@ def publish_release(token=None):
         else:
             print(f"Release API Status: {res.status_code} - {res.text}")
     else:
-        print("\nℹ️ Tag GitHub'a gönderildi. GitHub Actions otomatik olarak Release ve EXE ekleyecektir!")
+        print("\n[INFO] Tag GitHub'a gonderildi. GitHub Actions otomatik olarak Release ve EXE ekleyecektir!")
 
     print("\n🎉==========================================")
     print(f"[OK] {tag_name} Otomatik Yayınlama Süreci Tamamlandı!")
