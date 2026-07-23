@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyInstaller / Build
+build/
+dist/
+*.manifest
+*.spec
+
+# Downloads and Output
+downloads/
+processed/
+logs/
+*.mp4
+*.mkv
+*.webm
+
+# Environment
+.venv/
+env/
+venv/
