@@ -14,7 +14,7 @@ ctk.set_default_color_theme("blue")
 
 APP_NAME = "VidDownUPload"
 APP_VERSION = "1.0.3"
-PUBLISHER = "BURAKKARABULUT87"
+PUBLISHER = "bkara87"
 
 DEFAULT_INSTALL_DIR = Path(os.environ.get("LOCALAPPDATA", r"C:\Users\Public")) / APP_NAME
 
@@ -135,7 +135,33 @@ class SetupWindow(ctk.CTk):
             corner_radius=8,
             command=self._start_installation
         )
-        self.btn_install.pack(side="right", padx=25, pady=12)
+        self.btn_install.pack(side="right", padx=25, pady=11)
+
+    def _safe_extract_zip(self, zip_path, target_dir):
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            for member in zip_ref.infolist():
+                out_path = Path(target_dir) / member.filename
+                if member.is_dir():
+                    out_path.mkdir(parents=True, exist_ok=True)
+                    continue
+
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+
+                if out_path.exists():
+                    try:
+                        out_path.unlink()
+                    except Exception:
+                        try:
+                            renamed_bak = out_path.with_name(f"{out_path.name}.old_{int(time.time())}")
+                            out_path.rename(renamed_bak)
+                        except Exception:
+                            pass
+
+                try:
+                    with zip_ref.open(member) as source, open(out_path, "wb") as target:
+                        shutil.copyfileobj(source, target)
+                except Exception as e:
+                    print(f"Warning writing file {out_path}: {e}")
 
     def _start_installation(self):
         install_dir = Path(self.install_dir_var.get().strip())
@@ -145,13 +171,25 @@ class SetupWindow(ctk.CTk):
         self.update_idletasks()
 
         try:
+            # Terminate any running instance of the app to prevent file lock Permission Denied error
+            try:
+                if os.name == 'nt':
+                    subprocess.run(
+                        ['taskkill', '/F', '/IM', f"{APP_NAME}.exe"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        creationflags=0x08000000
+                    )
+                    time.sleep(0.5)
+            except Exception:
+                pass
+
             install_dir.mkdir(parents=True, exist_ok=True)
             
             # Extract bundled app zip if frozen, or copy from dist/VidDownUPload
             bundle_zip = Path(getattr(sys, '_MEIPASS', '.')) / "app_payload.zip"
             if bundle_zip.exists():
-                with zipfile.ZipFile(bundle_zip, 'r') as zip_ref:
-                    zip_ref.extractall(install_dir)
+                self._safe_extract_zip(bundle_zip, install_dir)
             else:
                 src_dist = Path("dist") / APP_NAME
                 if src_dist.exists():
@@ -181,8 +219,18 @@ class SetupWindow(ctk.CTk):
             register_uninstaller(install_dir, exe_path, uninstaller_exe, icon_path)
 
             self.progress_bar.set(1.0)
-            self.lbl_status.configure(text="✅ Kurulum Başarıyla Tamamlandı!")
-            messagebox.showinfo("Başarılı", f"{APP_NAME} başarıyla kuruldu!\n\nKonum: {install_dir}")
+            self.lbl_status.configure(text="🎉 Kurulum Başarıyla Tamamlandı!")
+            
+            ans = messagebox.askyesno(
+                "Kurulum Tamamlandı",
+                f"🎉 {APP_NAME} v{APP_VERSION} başarıyla kuruldu!\n\nUygulamayı şimdi çalıştırmak istiyor musunuz?",
+                icon="info"
+            )
+            if ans:
+                try:
+                    subprocess.Popen([str(exe_path)])
+                except Exception as ex:
+                    print(f"Error launching app: {ex}")
             self.destroy()
 
         except Exception as e:

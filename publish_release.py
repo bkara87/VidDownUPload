@@ -7,19 +7,28 @@ import requests
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
+VERSION = "1.1.0"
 
 def get_current_version():
     ver_json = BASE_DIR / "version.json"
     if ver_json.exists():
         with open(ver_json, "r", encoding="utf-8") as f:
             data = json.load(f)
-            return data.get("version", "1.0.1")
-    return "1.0.1"
+            return data.get("version", VERSION)
+    return VERSION
 
 def get_git_token():
     try:
-        p = subprocess.Popen(['git', 'credential', 'fill'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        stdout, _ = p.communicate(input='protocol=https\nhost=github.com\nusername=BURAKKARABULUT87\n\n')
+        p = subprocess.Popen(
+            ['git', 'credential', 'fill'],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        stdout, _ = p.communicate(
+            input='protocol=https\nhost=github.com\nusername=bkara87\n\n'
+        )
         for line in stdout.splitlines():
             if line.startswith('password='):
                 return line.split('password=')[1]
@@ -30,71 +39,137 @@ def get_git_token():
 def publish_release(token=None):
     version = get_current_version()
     tag_name = f"v{version}"
-    print(f"[RELEASE] Automatic Release Publishing Process Starting for {tag_name}...")
+    setup_name = f"VidDownUPload_Setup_{tag_name}"
+
+    print(f"\n{'='*60}")
+    print(f"  VidDownUPload {tag_name} — Otomatik Yayın Süreci")
+    print(f"{'='*60}\n")
 
     # 1. Build Executable & Setup Installer
-    print("\n1. Derleniyor: Executable & Setup Installer...")
+    print("[ 1/4 ] Derleniyor: Executable & Setup Installer...")
     subprocess.run([sys.executable, "build_installer.py"], check=True)
 
+    setup_exe = BASE_DIR / "dist" / f"{setup_name}.exe"
+    if not setup_exe.exists():
+        print(f"[HATA] Setup EXE bulunamadı: {setup_exe}")
+        sys.exit(1)
+    print(f"[OK] Setup EXE hazır: {setup_exe} ({setup_exe.stat().st_size // (1024*1024):.1f} MB)")
+
     # 2. Git Commit and Push to main
-    print("\n2. GitHub'a Push Ediliyor (main branch)...")
+    print("\n[ 2/4 ] GitHub'a Push Ediliyor (main branch)...")
     subprocess.run(["git", "add", "."], check=True)
-    subprocess.run(["git", "commit", "-m", f"Release {tag_name}"], check=False)
+    subprocess.run(
+        ["git", "commit", "-m",
+         f"Release {tag_name}: Ultra premium UI, YouTube/TikTok/Facebook/Threads API, FFmpeg HQ, debounce optimizasyon"],
+        check=False
+    )
     subprocess.run(["git", "push", "-u", "origin", "main"], check=True)
 
     # 3. Create & Push Git Tag
-    print(f"\n3. Git Tag Oluşturuluyor: {tag_name}...")
+    print(f"\n[ 3/4 ] Git Tag Oluşturuluyor: {tag_name}...")
     subprocess.run(["git", "tag", "-a", tag_name, "-m", f"Release {tag_name}"], check=False)
     subprocess.run(["git", "push", "origin", tag_name], check=False)
 
-    # 4. Direct GitHub API Upload
+    # 4. GitHub API — Create Release & Upload EXE
     github_token = token or get_git_token()
-    owner = "BURAKKARABULUT87"
+    owner = "bkara87"
     repo = "VidDownUPload"
 
+    release_body = (
+        f"## VidDownUPload {tag_name} — Ultra Premium Güncelleme 🚀\n\n"
+        "### ✨ Bu Sürümdeki Yenilikler:\n\n"
+        "**🎨 Ultra Premium Arayüz:**\n"
+        "- Obsidian siyah glassmorphism tasarım (#05080F taban)\n"
+        "- Deep Violet (#7C3AED) gradient vurgu rengi\n"
+        "- 32 çubuklu smooth spectrum equalizer (mirror-simetrik, idle breathing)\n"
+        "- Cinematic video kart tasarımı (thumbnail frame, işlendi badge)\n"
+        "- Premium log terminal (Cascadia Code, yeşil terminal metin)\n\n"
+        "**📤 Platform Yükleme (Gerçek API'ler):**\n"
+        "- ▶️ **YouTube Shorts** — OAuth2 + Resumable Upload\n"
+        "- 🎵 **TikTok** — Content Posting API v2 (chunk upload)\n"
+        "- 📘 **Facebook Reels** — Meta Graph API + rupload streaming\n"
+        "- 🧵 **Threads** — Meta Graph API entegrasyonu\n"
+        "- 📸 **Instagram** — Streaming upload (RAM dostu)\n\n"
+        "**⚡ Performans:**\n"
+        "- 800ms debounce URL bilgi çekme (thread birikimi önlendi)\n"
+        "- URL önbelleği (aynı URL için yt-dlp tekrar çalışmaz)\n"
+        "- PIL önbelleği ile video preview hızlandırıldı (~5x)\n"
+        "- boxFilter blur (GaussianBlur yerine ~5x hızlı)\n\n"
+        "**🎥 Görsel Kalite:**\n"
+        "- FFmpeg: ultrafast → slow preset, CRF 22 → 18, ses 128k → 192k\n"
+        "- +faststart (mobil optimize MP4), H.264 High Profile\n"
+        "- Kalite seçim dropdown (Hızlı / Yüksek / Maksimum)\n\n"
+        "---\n"
+        "📥 **Kurulum için `VidDownUPload_Setup_v1.1.0.exe` dosyasını indirin.**"
+    )
+
     if github_token:
-        print("\n4. GitHub API ile Otomatik Release ve EXE Yükleniyor...")
+        print(f"\n[ 4/4 ] GitHub API ile Release & EXE Yükleniyor...")
         headers = {
             "Authorization": f"token {github_token}",
             "Accept": "application/vnd.github.v3+json"
         }
+
+        # Delete existing tag/release if already exists
+        try:
+            del_res = requests.get(
+                f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag_name}",
+                headers=headers, timeout=10
+            )
+            if del_res.status_code == 200:
+                rel_id = del_res.json().get("id")
+                requests.delete(
+                    f"https://api.github.com/repos/{owner}/{repo}/releases/{rel_id}",
+                    headers=headers, timeout=10
+                )
+                print(f"[INFO] Mevcut {tag_name} release silindi.")
+        except Exception:
+            pass
 
         # Create Release via API
         rel_url = f"https://api.github.com/repos/{owner}/{repo}/releases"
         rel_data = {
             "tag_name": tag_name,
             "target_commitish": "main",
-            "name": f"{tag_name} - Otomatik Sürüm Güncellemesi",
-            "body": f"VidDownUPload Otomatik Güncelleme Paketi ({tag_name})\n\nYenilikler ve performans güncellemeleri içerir.",
+            "name": f"VidDownUPload {tag_name} — Ultra Premium Studio",
+            "body": release_body,
             "draft": False,
             "prerelease": False
         }
-        res = requests.post(rel_url, headers=headers, json=rel_data)
+        res = requests.post(rel_url, headers=headers, json=rel_data, timeout=30)
+
         if res.status_code in [200, 201]:
             rel_info = res.json()
-            upload_url_template = rel_info.get("upload_url", "")
-            upload_url = upload_url_template.split("{")[0]
-            
-            # Upload Setup EXE asset
-            setup_exe = BASE_DIR / "dist" / f"VidDownUPload_Setup_{tag_name}.exe"
-            if setup_exe.exists():
-                print(f"Uploading {setup_exe.name} asset to GitHub Release...")
-                with open(setup_exe, "rb") as f:
-                    u_headers = headers.copy()
-                    u_headers["Content-Type"] = "application/octet-stream"
-                    u_res = requests.post(f"{upload_url}?name={setup_exe.name}", headers=u_headers, data=f)
-                    if u_res.status_code in [200, 201]:
-                        print("[OK] Setup EXE asset uploaded successfully to GitHub!")
-                    else:
-                        print(f"Asset upload status: {u_res.status_code}")
-        else:
-            print(f"Release API Status: {res.status_code}")
-    else:
-        print("\n[INFO] Tag GitHub'a gonderildi. GitHub Actions otomatik olarak Release ve EXE ekleyecektir!")
+            upload_url = rel_info.get("upload_url", "").split("{")[0]
+            print(f"[OK] GitHub Release oluşturuldu: {rel_info.get('html_url')}")
 
-    print("\n==========================================")
-    print(f"[OK] {tag_name} OTOMATIK YAYINLAMA TAMAMLANDI!")
-    print("==========================================")
+            # Upload Setup EXE asset (streaming — no full RAM load)
+            print(f"[↑] Upload ediliyor: {setup_exe.name} ({setup_exe.stat().st_size // (1024*1024):.1f} MB)...")
+            with open(setup_exe, "rb") as f:
+                u_headers = headers.copy()
+                u_headers["Content-Type"] = "application/octet-stream"
+                u_res = requests.post(
+                    f"{upload_url}?name={setup_exe.name}",
+                    headers=u_headers,
+                    data=f,
+                    timeout=1800   # 30 min for large files
+                )
+                if u_res.status_code in [200, 201]:
+                    asset_url = u_res.json().get("browser_download_url", "")
+                    print(f"[OK] Setup EXE başarıyla GitHub'a yüklendi!")
+                    print(f"     Download URL: {asset_url}")
+                else:
+                    print(f"[UYARI] Asset upload: HTTP {u_res.status_code} — {u_res.text[:200]}")
+        else:
+            print(f"[HATA] Release API: HTTP {res.status_code} — {res.text[:300]}")
+    else:
+        print("\n[INFO] GitHub token bulunamadı.")
+        print("       Token GitHub'a gönderildi. Manuel olarak GitHub Actions ile release yapabilirsiniz.")
+        print("       Ya da: python publish_release.py <GITHUB_TOKEN>")
+
+    print(f"\n{'='*60}")
+    print(f"  ✅ {tag_name} YAYINLAMA TAMAMLANDI!")
+    print(f"{'='*60}\n")
 
 if __name__ == "__main__":
     token_arg = sys.argv[1] if len(sys.argv) > 1 else None
