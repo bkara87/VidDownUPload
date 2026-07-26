@@ -8,7 +8,7 @@ import webview
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
-from src.config import APP_NAME, APP_VERSION, DOWNLOADS_DIR, PROCESSED_DIR, BASE_DIR
+from src.config import APP_NAME, APP_VERSION, DOWNLOADS_DIR, PROCESSED_DIR, BASE_DIR, FFMPEG_BINARY
 from src.downloader.downloader import VideoDownloader
 from src.updater.github_updater import GitHubUpdater
 
@@ -137,7 +137,7 @@ class ApiBridge:
             thumb_path = tempfile.mktemp(suffix=".jpg")
 
             # Use ffmpeg to extract frame at 1 second
-            ffmpeg_bin = self._get_ffmpeg_path()
+            ffmpeg_bin = FFMPEG_BINARY
             cmd = [
                 ffmpeg_bin,
                 "-ss", "00:00:01",
@@ -148,7 +148,12 @@ class ApiBridge:
                 "-y",
                 thumb_path
             ]
-            result = subprocess.run(cmd, capture_output=True, timeout=15)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=15,
+                creationflags=0x08000000 if os.name == 'nt' else 0
+            )
 
             if os.path.exists(thumb_path):
                 with open(thumb_path, "rb") as f:

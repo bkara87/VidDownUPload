@@ -1,6 +1,10 @@
 import sys
 import os
-import webview
+import multiprocessing
+
+if __name__ == "__main__":
+    multiprocessing.freeze_support()
+
 from pathlib import Path
 
 # Add root directory to python path
@@ -41,6 +45,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import multiprocessing
-    multiprocessing.freeze_support()
     main()

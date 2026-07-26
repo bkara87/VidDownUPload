@@ -15,6 +15,7 @@ except Exception:
     PYGAME_AVAILABLE = False
 
 from src.ui.preset_badges import render_badge_overlay
+from src.config import FFMPEG_BINARY
 
 class VideoPreviewWidget(ctk.CTkFrame):
     """
@@ -185,8 +186,14 @@ class VideoPreviewWidget(ctk.CTkFrame):
             temp_wav.close()
 
             # Extract audio using ffmpeg to temp wav in background
-            cmd = ["ffmpeg", "-y", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", self.current_audio_path]
-            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            cmd = [FFMPEG_BINARY, "-y", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", self.current_audio_path]
+            subprocess.run(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                creationflags=0x08000000 if os.name == 'nt' else 0
+            )
 
             if os.path.exists(self.current_audio_path) and os.path.getsize(self.current_audio_path) > 1000:
                 if self.is_playing:
