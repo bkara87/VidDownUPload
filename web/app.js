@@ -1067,3 +1067,10 @@ function deleteVideoConfirm(videoPath, cardEl) {
     });
   }
 }
+
+function togglePasswordVisibility(inputId) {
+  const el = document.getElementById(inputId);
+  if (el) {
+    el.type = el.type === 'password' ? 'text' : 'password';
+  }
+}

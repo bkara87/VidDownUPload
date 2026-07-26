@@ -12,8 +12,19 @@ import customtkinter as ctk
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
+def get_current_version():
+    try:
+        base = Path(sys._MEIPASS) if getattr(sys, 'frozen', False) else Path(__file__).parent.parent.parent
+        v_json = base / "version.json"
+        if v_json.exists():
+            with open(v_json, "r", encoding="utf-8") as f:
+                return json.load(f).get("version", "2.0.1")
+    except Exception:
+        pass
+    return "2.0.1"
+
 APP_NAME = "VidDownUPload"
-APP_VERSION = "1.0.3"
+APP_VERSION = get_current_version()
 PUBLISHER = "bkara87"
 
 DEFAULT_INSTALL_DIR = Path(os.environ.get("LOCALAPPDATA", r"C:\Users\Public")) / APP_NAME

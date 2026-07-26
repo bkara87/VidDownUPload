@@ -357,7 +357,10 @@
             </div>
             <div>
               <label class="form-label">Meta Graph API Access Token (EAAG...)</label>
-              <input type="text" id="igAccessToken" placeholder="EAAG...">
+              <div class="flex gap-4">
+                <input type="password" id="igAccessToken" placeholder="EAAG..." style="flex:1;">
+                <button type="button" class="btn btn-secondary" onclick="togglePasswordVisibility('igAccessToken')" style="padding:4px 12px;">👁️</button>
+              </div>
             </div>
             <div class="divider"></div>
             <div>

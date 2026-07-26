@@ -1,5 +1,5 @@
 {
-  "version": "2.0.0",
-  "download_url": "https://github.com/bkara87/VidDownUPload/releases/download/v2.0.0/VidDownUPload_Setup_v2.0.0.exe",
-  "release_notes": "Sürüm 2.0.0: Tam yeniden yazım! PyWebView tabanlı yerleşik browser (Edge WebView2) üzerinde çalışan premium HTML/CSS/JS arayüz. Adres çubuğu yok, masaüstü uygulaması gibi çalışır. Yeni özellikler: 9:16 canvas önizleme ile drag&drop logo/blur konumu, otomatik caption doldurma (kanal adı silinmiş hashtag'ler), video ID ile kayıt, stüdyo paylaşım entegrasyonu."
+  "version": "2.0.1",
+  "download_url": "https://github.com/bkara87/VidDownUPload/releases/download/v2.0.1/VidDownUPload_Setup_v2.0.1.exe",
+  "release_notes": "Sürüm 2.0.1: PyWebView + Edge WebView2 chromeless masaüstü arayüzü, sorunsuz FFmpeg entegrasyonu, gizli API anahtarı maskeleme, dinamik kurulum sihirbazı sürümü, otomatik sürüm yükseltme ve hata düzeltmeleri."
 }

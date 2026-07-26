@@ -438,8 +438,8 @@ class ApiBridge:
             try:
                 with open(KEYS_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    # Don't expose passwords to JS in plain text — mask them
                     safe = dict(data)
+                    # Mask password
                     if "instagram_auth" in safe and isinstance(safe["instagram_auth"], dict):
                         auth = dict(safe["instagram_auth"])
                         if auth.get("password"):
@@ -451,9 +451,8 @@ class ApiBridge:
         return {}
 
     def save_api_keys(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Save API keys to config_keys.json. Preserves existing password if masked."""
+        """Save API keys to config_keys.json. Preserves existing values if masked."""
         try:
-            # Load existing to preserve actual password
             existing = {}
             if KEYS_FILE.exists():
                 try:
@@ -462,26 +461,33 @@ class ApiBridge:
                 except Exception:
                     pass
 
-            # If password is masked (●●●●), keep the existing password
+            def is_masked(val: str) -> bool:
+                return bool(val and ('*' in val or '●' in val))
+
+            # Preserve existing password if masked
             if "instagram_auth" in data:
                 new_pass = data["instagram_auth"].get("password", "")
-                if new_pass and all(c == "●" for c in new_pass):
+                if is_masked(new_pass):
                     existing_auth = existing.get("instagram_auth", {})
                     data["instagram_auth"]["password"] = existing_auth.get("password", "")
 
-            # Merge new data over existing
+            # Preserve access token / secrets if masked
+            for k in ["instagram_access_token", "youtube_client_secret", "tiktok_access_token"]:
+                if k in data and is_masked(data[k]):
+                    data[k] = existing.get(k, "")
+
             existing.update(data)
 
             with open(KEYS_FILE, "w", encoding="utf-8") as f:
                 json.dump(existing, f, ensure_ascii=False, indent=2)
 
-            self.log("✅ API anahtarları kaydedildi.", "success")
+            self.log("✅ API anahtarları başarıyla kaydedildi.", "success")
             return {"success": True}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
     def test_instagram_api(self) -> Dict[str, Any]:
-        """Test Instagram API token validity."""
+        """Robustly test Instagram / Meta Access Token validity across multiple Graph endpoints."""
         try:
             keys = {}
             if KEYS_FILE.exists():
@@ -491,25 +497,58 @@ class ApiBridge:
             account_id = keys.get("instagram_account_id", "").strip()
             access_token = keys.get("instagram_access_token", "").strip()
 
-            if not account_id or not access_token:
-                return {"success": False, "message": "Account ID veya Access Token eksik"}
+            if not access_token:
+                return {"success": False, "message": "❌ Access Token bulunamadı. Lütfen Token girip kaydedin."}
 
             import requests
-            check_url = f"https://graph.facebook.com/v23.0/{account_id}"
-            resp = requests.get(
-                check_url,
-                params={"fields": "id,username,name", "access_token": access_token},
-                timeout=15
-            )
-            rj = resp.json()
-            if resp.status_code == 200 and "id" in rj:
-                username = rj.get("username") or rj.get("name") or "Meta Hesabı"
-                return {"success": True, "message": f"✅ Token geçerli: @{username} (ID: {rj.get('id')})"}
-            else:
-                err = rj.get("error", {}).get("message", resp.text)
-                return {"success": False, "message": f"❌ Token Hatası: {err}"}
+
+            # 1. Test Graph API /me endpoint (works for Page Token, User Token, App Token)
+            me_url = "https://graph.facebook.com/v20.0/me"
+            resp = requests.get(me_url, params={"fields": "id,name", "access_token": access_token}, timeout=12)
+
+            if resp.status_code == 200:
+                rj = resp.json()
+                uname = rj.get("name") or rj.get("id") or "Meta Hesabı"
+
+                # If account_id is also supplied, test specific account query
+                if account_id:
+                    acc_url = f"https://graph.facebook.com/v20.0/{account_id}"
+                    acc_resp = requests.get(acc_url, params={"fields": "id,username,name", "access_token": access_token}, timeout=12)
+                    if acc_resp.status_code == 200:
+                        acc_rj = acc_resp.json()
+                        ig_name = acc_rj.get("username") or acc_rj.get("name") or uname
+                        return {"success": True, "message": f"✅ Token Geçerli: @{ig_name} (ID: {account_id})"}
+
+                return {"success": True, "message": f"✅ Meta Token Geçerli: {uname} (ID: {rj.get('id')})"}
+
+            # 2. Test direct Instagram Graph Account ID endpoint if specified
+            if account_id:
+                acc_url = f"https://graph.facebook.com/v20.0/{account_id}"
+                acc_resp = requests.get(acc_url, params={"fields": "id,username,name", "access_token": access_token}, timeout=12)
+                if acc_resp.status_code == 200:
+                    acc_rj = acc_resp.json()
+                    ig_name = acc_rj.get("username") or acc_rj.get("name") or "Instagram Hesabı"
+                    return {"success": True, "message": f"✅ Token Geçerli: @{ig_name} (ID: {account_id})"}
+
+            # 3. Test Instagram Basic Display API (/me)
+            ig_me_url = "https://graph.instagram.com/me"
+            ig_resp = requests.get(ig_me_url, params={"fields": "id,username", "access_token": access_token}, timeout=12)
+            if ig_resp.status_code == 200:
+                ig_rj = ig_resp.json()
+                return {"success": True, "message": f"✅ Instagram Token Geçerli: @{ig_rj.get('username')} (ID: {ig_rj.get('id')})"}
+
+            # Extract detailed error message from response
+            err_msg = "Meta API erişimi reddetti"
+            try:
+                err_data = resp.json().get("error", {})
+                err_msg = err_data.get("message") or err_data.get("error_user_msg") or resp.text
+            except Exception:
+                err_msg = resp.text[:150]
+
+            return {"success": False, "message": f"❌ Test Başarısız: {err_msg}"}
+
         except Exception as e:
-            return {"success": False, "message": str(e)}
+            return {"success": False, "message": f"❌ Bağlantı Hatası: {str(e)}"}
 
     # ──────────────────────────────────────────────────────────────
     # UPDATES

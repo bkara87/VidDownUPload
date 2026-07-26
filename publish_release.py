@@ -7,7 +7,7 @@ import requests
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
-VERSION = "1.1.1"
+VERSION = "2.0.1"
 
 def get_current_version():
     ver_json = BASE_DIR / "version.json"

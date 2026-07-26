@@ -5,6 +5,7 @@ import multiprocessing
 if __name__ == "__main__":
     multiprocessing.freeze_support()
 
+import webview
 from pathlib import Path
 
 # Add root directory to python path
