@@ -7,7 +7,7 @@ import requests
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 
 def get_current_version():
     ver_json = BASE_DIR / "version.json"
@@ -76,31 +76,26 @@ def publish_release(token=None):
     repo = "VidDownUPload"
 
     release_body = (
-        f"## VidDownUPload {tag_name} — Ultra Premium Güncelleme 🚀\n\n"
-        "### ✨ Bu Sürümdeki Yenilikler:\n\n"
-        "**🎨 Ultra Premium Arayüz:**\n"
-        "- Obsidian siyah glassmorphism tasarım (#05080F taban)\n"
-        "- Deep Violet (#7C3AED) gradient vurgu rengi\n"
-        "- 32 çubuklu smooth spectrum equalizer (mirror-simetrik, idle breathing)\n"
-        "- Cinematic video kart tasarımı (thumbnail frame, işlendi badge)\n"
-        "- Premium log terminal (Cascadia Code, yeşil terminal metin)\n\n"
-        "**📤 Platform Yükleme (Gerçek API'ler):**\n"
-        "- ▶️ **YouTube Shorts** — OAuth2 + Resumable Upload\n"
-        "- 🎵 **TikTok** — Content Posting API v2 (chunk upload)\n"
-        "- 📘 **Facebook Reels** — Meta Graph API + rupload streaming\n"
-        "- 🧵 **Threads** — Meta Graph API entegrasyonu\n"
-        "- 📸 **Instagram** — Streaming upload (RAM dostu)\n\n"
-        "**⚡ Performans:**\n"
-        "- 800ms debounce URL bilgi çekme (thread birikimi önlendi)\n"
-        "- URL önbelleği (aynı URL için yt-dlp tekrar çalışmaz)\n"
-        "- PIL önbelleği ile video preview hızlandırıldı (~5x)\n"
-        "- boxFilter blur (GaussianBlur yerine ~5x hızlı)\n\n"
-        "**🎥 Görsel Kalite:**\n"
-        "- FFmpeg: ultrafast → slow preset, CRF 22 → 18, ses 128k → 192k\n"
-        "- +faststart (mobil optimize MP4), H.264 High Profile\n"
-        "- Kalite seçim dropdown (Hızlı / Yüksek / Maksimum)\n\n"
+        f"## VidDownUPload {tag_name} — Web Tabanlı Yerleşik Browser (Edge WebView2) 🚀\n\n"
+        "### ✨ Bu Sürümdeki Yenilikler (v2.0.0 Tam Yeniden Yazım):\n\n"
+        "**🌐 Standalone Web Uygulaması Mimarisi:**\n"
+        "- Chromium / Edge WebView2 tabanlı yerleşik browser üstünde kendi başına çalışan masaüstü web uygulaması\n"
+        "- Adres çubuğu olmadan tam masaüstü programı hissi\n"
+        "- 5 sekmeli ultra premium HTML/CSS/JS arayüz (İndirici, Stüdyo, Paylaşım, API Yönetimi, Ayarlar)\n"
+        "- Inter & JetBrains Mono tipografisi, glassmorphism kart tasarımı, canlı spectrum equalizer ve konsol terminali\n\n"
+        "**🎨 Stüdyo & 9:16 Canvas Önizleme:**\n"
+        "- HTML5 canvas ile 9:16 canlı video üzerinde sürükle-bırak (drag & drop) logo ve blur kutusu konumu belirleme\n"
+        "- Kanal logosu şablonları, boyut ölçeği, flulaştırma alanı ayarlamaları\n"
+        "- İsteğe bağlı özel yazı filigranı ekleme\n\n"
+        "**📥 Akıllı İndirici & ID + Etiket Kaydı:**\n"
+        "- İndirilen her video kendi ID'si ve etiket/yazısı (sidecar JSON) ile kaydedilir\n"
+        "- İndirilen kanala ait etiketler temizlenir, #724mizahdeposu ve genel etiketler otomatik eklenir\n"
+        "- Hesapsız profil/kanal reels tarama ve toplu indirme desteği\n\n"
+        "**🚀 Otomatik Paylaşım & Caption Doldurma:**\n"
+        "- Stüdyo ve Paylaşım aşamasında sidecar JSON'dan açıklama (caption) otomatik doldurulur ve kullanıcı tarafından düzenlenebilir\n"
+        "- Instagram, YouTube Shorts, TikTok, Facebook Reels, Threads çoklu platform paylaşım desteği\n\n"
         "---\n"
-        "📥 **Kurulum için `VidDownUPload_Setup_v1.1.0.exe` dosyasını indirin.**"
+        f"📥 **Kurulum için `{setup_name}.exe` dosyasını indirip çalıştırın.**"
     )
 
     if github_token:

@@ -449,15 +449,29 @@ class ApiKeysTab(ctk.CTkFrame):
                         self.log_callback(f"✅ Instagram Graph API v23.0 Doğrulandı: @{username}")
                     self.after(0, lambda: messagebox.showinfo("Bağlantı Başarılı", msg))
                 else:
-                    err_msg = data.get("error", {}).get("message", resp.text)
-                    msg = f"❌ Instagram Graph API Bağlantı Hatası:\n\n{err_msg}\n\nLütfen Token ve Account ID bilgilerinizi Meta Developer portalından kontrol edin."
+                    err_info = data.get("error", {})
+                    err_msg = err_info.get("message", resp.text)
+                    err_code = err_info.get("code", "")
+
+                    if str(err_code) == "190" or "cannot parse" in err_msg.lower() or "invalid oauth" in err_msg.lower():
+                        msg = (
+                            f"❌ Instagram Graph API Access Token Geçersiz (Hata 190)\n\n"
+                            f"Detay: {err_msg}\n\n"
+                            f"💡 Bilgilendirme & Otomatik Çözüm:\n"
+                            f"1. Sistemimiz otomatik yedek (Direct Instagrapi) moduna sahiptir!\n"
+                            f"   Üst kısımdaki 'İnstagram Kullanıcı Adı ve Şifresi' dolu ise paylaşımlarınız doğrudan hesabanızla yapılır.\n\n"
+                            f"2. Resmi Meta Graph API kullanmak isterseniz:\n"
+                            f"   developers.facebook.com → Graph API Explorer üzerinden 'instagram_content_publish' ve 'instagram_basic' izinleriyle yeni token üretin."
+                        )
+                    else:
+                        msg = f"❌ Instagram Graph API Bağlantı Hatası:\n\n{err_msg}\n\nLütfen Token ve Account ID bilgilerinizi Meta Developer portalından kontrol edin."
+
                     if self.log_callback:
-                        self.log_callback(f"❌ Instagram Graph API Testi Başarısız: {err_msg}")
-                    self.after(0, lambda: messagebox.showerror("Bağlantı Başarısız", msg))
+                        self.log_callback(f"❌ Instagram Graph API Testi: {err_msg}")
+                    self.after(0, lambda: messagebox.showerror("Bağlantı Başarısız (Hata 190)", msg))
             except Exception as e:
                 self.after(0, lambda: messagebox.showerror("Hata", f"İstek gönderilirken hata oluştu:\n{e}"))
 
 
         import threading
         threading.Thread(target=test_bg, daemon=True).start()
-

@@ -228,6 +228,102 @@ class InstagramGraphUploader:
             reason = f"❌ [Instagram Bağlantı Hatası] Meta sunucularına erişilemedi: {req_err}"
             log(reason)
             return False, reason
+
+
+# ─────────────────────────────────────────────────────────────────
+# INSTAGRAM DIRECT UPLOADER (instagrapi — Kullanıcı Adı + Şifre)
+# ─────────────────────────────────────────────────────────────────
+class InstagramDirectUploader:
+    """
+    Direct Instagram Reel Uploading using user credentials (username/password) via instagrapi.
+    Used as automatic fallback when Meta Graph API Access Token is missing, expired, or invalid (Error 190).
+    """
+    @staticmethod
+    def upload_reel_direct(video_path: str, caption: str, username: str, password: str, sessionid: str = "", log_callback: Optional[Callable[[str], None]] = None) -> tuple[bool, str]:
+        def log(msg: str):
+            if log_callback:
+                log_callback(msg)
+            print(f"[InstagramDirectUploader] {msg}")
+
+        username = str(username or "").strip()
+        password = str(password or "").strip()
+
+        if not username or not password:
+            reason = (
+                "❌ [Instagram Doğrudan Giriş Paylaşım Hatası]\n"
+                "  • Neden: Instagram Kullanıcı Adı veya Şifresi eksik!\n"
+                "  • Çözüm: Lütfen '🔑 API Yönetimi' sekmesinden Instagram Kullanıcı Adı ve Şifrenizi kaydedin."
+            )
+            log(reason)
+            return False, reason
+
+        if not os.path.exists(video_path):
+            reason = f"❌ [Instagram Direct] Video bulunamadı: {video_path}"
+            log(reason)
+            return False, reason
+
+        log("-------------------------------------------------------------")
+        log(f"📌 [INSTAGRAM DIRECT] Kullanıcı: @{username}")
+        log("-------------------------------------------------------------")
+
+        try:
+            from instagrapi import Client
+            cl = Client()
+            cl.delay_range = [2, 5]
+
+            # Try login via sessionid cookie first if provided
+            logged_in = False
+            session_file = BASE_DIR / f"ig_session_{username}.json"
+
+            if session_file.exists():
+                try:
+                    log("  [1/3] Önceki Instagram oturum bilgisi (session) yükleniyor...")
+                    cl.load_settings(session_file)
+                    cl.login(username, password)
+                    logged_in = True
+                    log("  ✓ Oturum bilgisi ile giriş başarılı.")
+                except Exception as sess_err:
+                    log(f"  ⚠️ Kayıtlı oturum kullanılamadı, yeniden giriş yapılıyor: {sess_err}")
+
+            if not logged_in:
+                log(f"  [1/3] Instagram sunucularına giriş yapılıyor (@{username})...")
+                cl.login(username, password)
+                try:
+                    cl.dump_settings(session_file)
+                except Exception:
+                    pass
+                log("  ✓ Instagram hesabına giriş yapıldı ve oturum kaydedildi.")
+
+            log("  [2/3] Reel videosu Instagram'a yükleniyor (clip upload)...")
+            media = cl.clip_upload(
+                path=Path(video_path),
+                caption=caption or ""
+            )
+
+            if media and getattr(media, "pk", None):
+                media_id = str(media.pk)
+                succ_msg = f"🎉 [Instagram Direct] Reel Başarıyla Paylaşıldı! Media ID: {media_id} (@{username})"
+                log(succ_msg)
+                return True, succ_msg
+            else:
+                reason = "❌ [Instagram Direct] Video yüklendi fakat yanıt medya kimliği alınamadı."
+                log(reason)
+                return False, reason
+
+        except Exception as e:
+            err_str = str(e)
+            if "BadPassword" in err_str:
+                reason = f"❌ [Instagram Direct] Şifre Hatalı! @{username} için girilen şifre doğrulanamadı."
+            elif "2FA" in err_str or "TwoFactorRequired" in err_str:
+                reason = f"❌ [Instagram Direct] 2FA (İki Faktörlü Doğrulama) Aktif! Lütfen iki faktörlü doğrulamayı geçici olarak kapatın veya uygulama şifresi kullanın."
+            elif "ChallengeRequired" in err_str or "Checkpoint" in err_str:
+                reason = f"❌ [Instagram Direct] Instagram güvenlik doğrulaması (Challenge/Checkpoint) istedi. Lütfen telefonunuzdan Instagram uygulamasına girip 'Giriş Yapan Bendim' seçeneğine basın."
+            else:
+                reason = f"❌ [Instagram Direct Hatası] {err_str}"
+
+            log(reason)
+            return False, reason
+
         except Exception as e:
             reason = f"❌ [Instagram Paylaşım Hatası] Beklenmeyen hata: {str(e)}"
             log(reason)
@@ -818,20 +914,48 @@ class SocialUploaderManager:
         log(f"📌 Seçili Yükleme Platformları: {', '.join([t.upper() for t in active_targets])}")
 
         # ──────────────────────────────────────
-        # 1. INSTAGRAM UPLOAD
+        # 1. INSTAGRAM UPLOAD (Smart Fallback: Graph API → Direct Uploader)
         # ──────────────────────────────────────
         if selected_platforms.get("instagram"):
             ig_id = keys_config.get("instagram_account_id", "").strip()
             ig_token = keys_config.get("instagram_access_token", "").strip()
+            ig_auth = keys_config.get("instagram_auth", {})
+            ig_user = ig_auth.get("username", "").strip()
+            ig_pass = ig_auth.get("password", "").strip()
+
             log("\n📸 [1] Instagram Reels Yükleme Adımı İşleniyor...")
-            success, msg = InstagramGraphUploader.upload_reel(
-                video_path=video_path,
-                caption=caption,
-                account_id=ig_id,
-                access_token=ig_token,
-                log_callback=log_callback
-            )
-            results["instagram"] = {"success": success, "message": msg}
+
+            graph_success = False
+            msg = ""
+
+            # Try Meta Graph API first if token and account id are present
+            if ig_id and ig_token:
+                log("  👉 Resmi Meta Graph API ile yükleme deneniyor...")
+                graph_success, msg = InstagramGraphUploader.upload_reel(
+                    video_path=video_path,
+                    caption=caption,
+                    account_id=ig_id,
+                    access_token=ig_token,
+                    log_callback=log_callback
+                )
+
+            # If Graph API failed or credentials missing, attempt Direct Login Fallback via instagrapi
+            if not graph_success:
+                if ig_user and ig_pass:
+                    log("\n  🔄 [Instagram Fallback] Meta Graph API başarısız oldu veya token eksik. Doğrudan Kullanıcı Adı & Şifre ile yükleme deneniyor...")
+                    direct_success, direct_msg = InstagramDirectUploader.upload_reel_direct(
+                        video_path=video_path,
+                        caption=caption,
+                        username=ig_user,
+                        password=ig_pass,
+                        sessionid=ig_auth.get("sessionid", ""),
+                        log_callback=log_callback
+                    )
+                    results["instagram"] = {"success": direct_success, "message": direct_msg}
+                else:
+                    results["instagram"] = {"success": False, "message": msg or "Instagram API Access Token geçersiz (Hata 190) ve Kullanıcı Adı/Şifre tanımlı değil."}
+            else:
+                results["instagram"] = {"success": True, "message": msg}
         else:
             log("ℹ️ [Instagram] Kutucuğu işaretlenmediği için ATLANDI.")
 

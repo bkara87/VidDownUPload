@@ -1,0 +1,1069 @@
+/**
+ * VidDownUPload v2.0 — Main Application Controller
+ * Handles: tabs, terminal log, video grids, studio canvas, upload flow
+ */
+
+// ────────────────────────────────────────────────────────────
+// STATE
+// ────────────────────────────────────────────────────────────
+
+const State = {
+  currentTab: 'download',
+  downloadedVideos: [],
+  processedVideos: [],
+  currentStudioPath: null,
+  uploadTargetPath: null,
+  profileScanItems: [],
+  logoRelX: 0.78,
+  logoRelY: 0.88,
+  blurRelX: 0.65,
+  blurRelY: 0.88,
+  quality: 'Yüksek Kalite (Varsayılan)',
+  eqAnimId: null,
+  eqRunning: false,
+  logCollapsed: false,
+  previewLogoBitmap: null,
+  logoDragging: false,
+  blurDragging: false,
+  updateDownloadUrl: ''
+};
+
+// ────────────────────────────────────────────────────────────
+// INIT
+// ────────────────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', () => {
+  initEqualizer();
+  initPreviewCanvas();
+  setupPreviewDrag();
+
+  // Wait for pywebview API to be ready
+  const waitForApi = () => {
+    if (window.pywebview && window.pywebview.api) {
+      onApiReady();
+    } else {
+      setTimeout(waitForApi, 100);
+    }
+  };
+  waitForApi();
+});
+
+function onApiReady() {
+  appendLog('VidDownUPload v2.0 başlatıldı. Hazır.', 'success');
+
+  // Load app version
+  window.pywebview.api.get_app_info().then(info => {
+    if (info && info.version) {
+      document.getElementById('appVersion').textContent = 'v' + info.version;
+      document.getElementById('settingsVersion').textContent = 'v' + info.version;
+    }
+  });
+
+  // Load video grids
+  refreshDownloads();
+  refreshQueueGrid();
+  loadApiKeys();
+}
+
+// ────────────────────────────────────────────────────────────
+// TABS
+// ────────────────────────────────────────────────────────────
+
+function switchTab(name) {
+  // Deactivate all
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+
+  // Activate target
+  document.getElementById('tab-' + name).classList.add('active');
+  document.getElementById('panel-' + name).classList.add('active');
+  State.currentTab = name;
+
+  if (name === 'studio') refreshStudioGrid();
+  if (name === 'queue')  refreshQueueGrid();
+}
+
+// ────────────────────────────────────────────────────────────
+// TERMINAL LOG
+// ────────────────────────────────────────────────────────────
+
+window.appendLog = function(message, type = 'info') {
+  const out = document.getElementById('terminalOutput');
+  if (!out) return;
+
+  const line = document.createElement('div');
+  line.className = 'log-line log-' + type;
+  const ts = new Date().toLocaleTimeString('tr-TR');
+  line.textContent = '[' + ts + '] ' + message;
+  out.appendChild(line);
+  out.scrollTop = out.scrollHeight;
+
+  // Also kick the equalizer
+  eqKick();
+};
+
+function clearLog() {
+  const out = document.getElementById('terminalOutput');
+  if (out) out.innerHTML = '';
+}
+
+function toggleLog() {
+  const out = document.getElementById('terminalOutput');
+  const btn = document.getElementById('btnToggleLog');
+  State.logCollapsed = !State.logCollapsed;
+  if (State.logCollapsed) {
+    out.classList.add('collapsed');
+    btn.textContent = '▲ Göster';
+  } else {
+    out.classList.remove('collapsed');
+    btn.textContent = '▼ Gizle';
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+// EQUALIZER ANIMATION
+// ────────────────────────────────────────────────────────────
+
+function initEqualizer() {
+  const container = document.getElementById('equalizer');
+  if (!container) return;
+  for (let i = 0; i < 32; i++) {
+    const bar = document.createElement('div');
+    bar.className = 'eq-bar';
+    bar.style.height = '2px';
+    bar.style.flex = '1';
+    container.appendChild(bar);
+  }
+}
+
+function eqKick() {
+  if (State.eqRunning) return;
+  State.eqRunning = true;
+  let ticks = 0;
+  const bars = document.querySelectorAll('.eq-bar');
+  const animate = () => {
+    bars.forEach(bar => {
+      const h = Math.random() * 18 + 2;
+      bar.style.height = h + 'px';
+    });
+    ticks++;
+    if (ticks < 25) {
+      State.eqAnimId = requestAnimationFrame(animate);
+    } else {
+      // Wind down
+      bars.forEach(bar => { bar.style.height = '2px'; });
+      State.eqRunning = false;
+    }
+  };
+  State.eqAnimId = requestAnimationFrame(animate);
+}
+
+// ────────────────────────────────────────────────────────────
+// UPDATE LOGIC
+// ────────────────────────────────────────────────────────────
+
+function checkUpdates() {
+  const btn = document.getElementById('btnUpdate');
+  btn.disabled = true;
+  btn.textContent = '⏳ Kontrol...';
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.check_for_updates();
+  }
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = '🔄 Güncelle';
+  }, 4000);
+}
+
+window.showUpdatePrompt = function(newVer, dlUrl) {
+  State.updateDownloadUrl = dlUrl;
+  document.getElementById('newVerTag').textContent = 'v' + newVer;
+  openModal('updateModal');
+};
+
+document.getElementById('btnApplyUpdate').addEventListener('click', () => {
+  if (State.updateDownloadUrl && window.pywebview && window.pywebview.api) {
+    window.pywebview.api.apply_update(State.updateDownloadUrl);
+    closeModal('updateModal');
+  }
+});
+
+// ────────────────────────────────────────────────────────────
+// MODALS
+// ────────────────────────────────────────────────────────────
+
+function openModal(id) {
+  document.getElementById(id).classList.add('open');
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+
+// ────────────────────────────────────────────────────────────
+// VIDEO GRID BUILDER
+// ────────────────────────────────────────────────────────────
+
+/**
+ * Renders a list of video objects into a grid container.
+ * @param {string} gridId - DOM id of the video-grid div
+ * @param {string} emptyId - DOM id of the empty state element (or null)
+ * @param {Array}  videos  - Array of video info objects from api
+ * @param {Object} opts    - Options: { showStudio, showUpload, showDelete }
+ */
+function renderVideoGrid(gridId, emptyId, videos, opts = {}) {
+  const grid = document.getElementById(gridId);
+  if (!grid) return;
+
+  // Clear old cards (keep empty-state if present)
+  const existing = grid.querySelectorAll('.video-card');
+  existing.forEach(el => el.remove());
+
+  if (emptyId) {
+    document.getElementById(emptyId).style.display = videos.length ? 'none' : '';
+  }
+
+  videos.forEach(v => {
+    const card = buildVideoCard(v, opts);
+    grid.appendChild(card);
+  });
+}
+
+function buildVideoCard(v, opts) {
+  const card = document.createElement('div');
+  card.className = 'video-card fade-in';
+  card.dataset.path = v.path;
+
+  // Thumbnail
+  const thumbDiv = document.createElement('div');
+  thumbDiv.className = 'video-thumb';
+
+  const placeholder = document.createElement('div');
+  placeholder.className = 'video-thumb-placeholder';
+  placeholder.textContent = '🎬';
+  thumbDiv.appendChild(placeholder);
+
+  const badge = document.createElement('div');
+  badge.className = 'video-card-badge';
+  badge.textContent = '✦ İşlendi';
+  badge.style.display = v.path.includes('processed') ? '' : 'none';
+  thumbDiv.appendChild(badge);
+
+  const ratio = document.createElement('div');
+  ratio.className = 'video-ratio-label';
+  ratio.textContent = '9:16';
+  thumbDiv.appendChild(ratio);
+
+  card.appendChild(thumbDiv);
+
+  // Lazy-load thumbnail
+  loadThumbnail(v.path, thumbDiv, placeholder);
+
+  // Info
+  const info = document.createElement('div');
+  info.className = 'video-card-info';
+
+  const title = document.createElement('div');
+  title.className = 'video-card-title';
+  title.textContent = v.title || v.filename;
+  info.appendChild(title);
+
+  const meta = document.createElement('div');
+  meta.className = 'video-card-meta';
+  meta.textContent = v.size_mb + ' MB  •  ' + (v.modified || '');
+  info.appendChild(meta);
+
+  card.appendChild(info);
+
+  // Action buttons
+  const actions = document.createElement('div');
+  actions.className = 'video-card-actions';
+
+  if (opts.showStudio) {
+    const btnS = document.createElement('button');
+    btnS.className = 'btn btn-secondary';
+    btnS.textContent = '🎨 Stüdyo';
+    btnS.title = 'Stüdyoya Aç';
+    btnS.onclick = e => { e.stopPropagation(); openInStudio(v.path, v.filename); };
+    actions.appendChild(btnS);
+  }
+
+  if (opts.showUpload) {
+    const btnU = document.createElement('button');
+    btnU.className = 'btn btn-primary';
+    btnU.textContent = '🚀 Yükle';
+    btnU.title = 'Platforma Yükle';
+    btnU.onclick = e => { e.stopPropagation(); openUploadModal(v.path, v.filename, v.caption, v.hashtags_str); };
+    actions.appendChild(btnU);
+  }
+
+  const btnDel = document.createElement('button');
+  btnDel.className = 'btn btn-danger btn-icon';
+  btnDel.textContent = '🗑';
+  btnDel.title = 'Sil';
+  btnDel.onclick = e => { e.stopPropagation(); deleteVideoConfirm(v.path, card); };
+  actions.appendChild(btnDel);
+
+  card.appendChild(actions);
+
+  // Click to open in studio
+  if (opts.showStudio) {
+    card.onclick = () => openInStudio(v.path, v.filename);
+  }
+
+  return card;
+}
+
+function loadThumbnail(videoPath, thumbDiv, placeholder) {
+  if (!window.pywebview || !window.pywebview.api) return;
+  window.pywebview.api.get_video_thumbnail(videoPath).then(dataUrl => {
+    if (dataUrl && dataUrl.startsWith('data:')) {
+      const img = document.createElement('img');
+      img.src = dataUrl;
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      img.style.position = 'absolute';
+      img.style.top = '0';
+      img.style.left = '0';
+      thumbDiv.style.position = 'relative';
+      thumbDiv.insertBefore(img, placeholder);
+      placeholder.style.display = 'none';
+    }
+  }).catch(() => {});
+}
+
+// ────────────────────────────────────────────────────────────
+// DOWNLOADS TAB
+// ────────────────────────────────────────────────────────────
+
+let urlFetchTimer = null;
+
+function onUrlInput(value) {
+  clearTimeout(urlFetchTimer);
+  const infoCard = document.getElementById('urlInfoCard');
+  if (!value || value.length < 15) {
+    infoCard.classList.remove('visible');
+    return;
+  }
+  urlFetchTimer = setTimeout(() => fetchUrlInfo(value), 900);
+}
+
+function fetchUrlInfo(url) {
+  if (!window.pywebview || !window.pywebview.api) return;
+  window.pywebview.api.fetch_video_info(url).then(info => {
+    if (info && info.title) {
+      document.getElementById('urlTitle').textContent = info.title.substring(0, 80);
+      document.getElementById('urlSub').textContent =
+        (info.uploader || '') + '  •  ' + (info.platform || '') + '  •  ' + (info.duration_str || '');
+
+      const thumbEl = document.getElementById('urlThumb');
+      if (info.thumbnail_url) {
+        thumbEl.src = info.thumbnail_url;
+        thumbEl.style.display = '';
+      } else {
+        thumbEl.style.display = 'none';
+      }
+      document.getElementById('urlInfoCard').classList.add('visible');
+    }
+  }).catch(() => {});
+}
+
+function startDownload() {
+  const url = document.getElementById('urlInput').value.trim();
+  if (!url) {
+    appendLog('⚠️ Lütfen geçerli bir video bağlantısı girin!', 'warning');
+    return;
+  }
+  if (!window.pywebview || !window.pywebview.api) {
+    appendLog('❌ Python API bağlantısı henüz hazır değil.', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('btnDownload');
+  btn.disabled = true;
+  btn.textContent = '⏳ İndiriliyor...';
+  document.getElementById('dlProgressWrap').style.display = '';
+
+  window.pywebview.api.start_download(url);
+}
+
+window.onDownloadComplete = function(filePath) {
+  const btn = document.getElementById('btnDownload');
+  btn.disabled = false;
+  btn.textContent = '⬇️ İndir';
+  document.getElementById('dlProgressWrap').style.display = 'none';
+
+  appendLog('✅ İndirme tamamlandı!', 'success');
+  refreshDownloads();
+
+  // Auto-open in studio
+  if (filePath) {
+    const fn = filePath.split(/[\\/]/).pop();
+    setTimeout(() => openInStudio(filePath, fn), 300);
+  }
+};
+
+function refreshDownloads() {
+  if (!window.pywebview || !window.pywebview.api) return;
+  window.pywebview.api.get_downloaded_videos().then(videos => {
+    State.downloadedVideos = videos;
+    renderVideoGrid('downloadGrid', 'downloadEmpty', videos, {
+      showStudio: true, showDelete: true
+    });
+  }).catch(() => {});
+}
+
+function startScanProfile() {
+  const url = document.getElementById('urlInput').value.trim();
+  if (!url) {
+    appendLog('⚠️ Lütfen profil / kanal URL\'si girin!', 'warning');
+    return;
+  }
+  const btn = document.getElementById('btnScan');
+  btn.disabled = true;
+  btn.textContent = '⏳ Taranıyor...';
+
+  document.getElementById('profileResultsWrap').style.display = 'none';
+
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.scan_profile(url);
+  }
+
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = '🔍 Tara';
+  }, 5000);
+}
+
+window.onProfileScanComplete = function(items) {
+  State.profileScanItems = items || [];
+  const btn = document.getElementById('btnScan');
+  btn.disabled = false;
+  btn.textContent = '🔍 Tara';
+
+  if (!items || items.length === 0) {
+    appendLog('⚠️ Profil videoları bulunamadı.', 'warning');
+    return;
+  }
+
+  appendLog('✅ ' + items.length + ' video bulundu.', 'success');
+  document.getElementById('profileResultCount').textContent = items.length + ' video';
+  document.getElementById('profileResultsWrap').style.display = '';
+  renderProfileResults(items);
+};
+
+function renderProfileResults(items) {
+  const container = document.getElementById('profileResults');
+  container.innerHTML = '';
+
+  items.slice(0, 50).forEach(item => {
+    const card = document.createElement('div');
+    card.className = 'profile-reel-card';
+
+    const thumb = document.createElement('div');
+    thumb.className = 'profile-reel-thumb';
+    thumb.textContent = '🎬';
+
+    if (item.thumbnail_url) {
+      const img = document.createElement('img');
+      img.src = item.thumbnail_url;
+      img.style.cssText = 'width:120px;height:213px;object-fit:cover;display:block;';
+      img.onerror = () => {};
+      thumb.textContent = '';
+      thumb.appendChild(img);
+    }
+
+    const title = document.createElement('div');
+    title.className = 'profile-reel-title';
+    title.textContent = (item.title || 'Reel Video').substring(0, 30);
+
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-primary';
+    btn.textContent = '⚡ İndir';
+    btn.onclick = () => {
+      document.getElementById('urlInput').value = item.url || '';
+      startDownload();
+    };
+
+    card.appendChild(thumb);
+    card.appendChild(title);
+    card.appendChild(btn);
+    container.appendChild(card);
+  });
+}
+
+function batchDownloadAll() {
+  const items = State.profileScanItems;
+  if (!items || items.length === 0) return;
+  appendLog('⚡ Toplu indirme başlatılıyor: ' + items.length + ' video...', 'info');
+
+  let idx = 0;
+  const next = () => {
+    if (idx >= items.length) {
+      appendLog('🎉 Toplu indirme tamamlandı!', 'success');
+      refreshDownloads();
+      return;
+    }
+    const item = items[idx++];
+    if (!item.url) { next(); return; }
+    if (window.pywebview && window.pywebview.api) {
+      window.pywebview.api.start_download(item.url).then(() => {
+        setTimeout(next, 500);
+      }).catch(() => next());
+    }
+  };
+  next();
+}
+
+// ────────────────────────────────────────────────────────────
+// STUDIO TAB
+// ────────────────────────────────────────────────────────────
+
+function refreshStudioGrid() {
+  if (!window.pywebview || !window.pywebview.api) return;
+  window.pywebview.api.get_downloaded_videos().then(videos => {
+    renderVideoGrid('studioGrid', null, videos, { showStudio: false, showDelete: false });
+    // Attach click handlers manually
+    document.querySelectorAll('#studioGrid .video-card').forEach(card => {
+      card.onclick = () => openInStudio(card.dataset.path, card.dataset.path.split(/[\\/]/).pop());
+    });
+  }).catch(() => {});
+}
+
+function openInStudio(videoPath, filename) {
+  State.currentStudioPath = videoPath;
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.set_studio_video(videoPath);
+  }
+
+  // Load video into preview
+  const video = document.getElementById('previewVideo');
+  video.src = 'file:///' + videoPath.replace(/\\/g, '/');
+  video.load();
+  video.play().catch(() => {});
+
+  document.getElementById('studioFileName').textContent = filename;
+
+  // Mark selected in studio grid
+  document.querySelectorAll('#studioGrid .video-card').forEach(c => {
+    c.classList.toggle('selected', c.dataset.path === videoPath);
+  });
+
+  appendLog('🎬 Stüdyoya yüklendi: ' + filename, 'info');
+  switchTab('studio');
+  updatePreview();
+}
+
+function applyPreset(preset) {
+  if (preset === 'reels') {
+    document.getElementById('chkLogo').checked = true;
+    document.getElementById('chkBlur').checked = true;
+    setLogoPreset('logo_724mizah_transparent.png');
+    appendLog('✅ Instagram Reels şablonu uygulandı.', 'success');
+  } else if (preset === 'tiktok') {
+    document.getElementById('chkLogo').checked = true;
+    document.getElementById('chkBlur').checked = true;
+    setLogoPreset('logo_724mizah_dark.png');
+    appendLog('✅ TikTok şablonu uygulandı.', 'success');
+  } else if (preset === 'shorts') {
+    document.getElementById('chkLogo').checked = true;
+    document.getElementById('chkBlur').checked = true;
+    setLogoPreset('logo_724mizah_light.png');
+    appendLog('✅ YouTube Shorts şablonu uygulandı.', 'success');
+  }
+  updatePreview();
+}
+
+function setLogoPreset(filename) {
+  // Get base path from API
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.get_app_info().then(info => {
+      if (info && info.base_dir) {
+        const logoPath = info.base_dir + '\\assets\\' + filename;
+        document.getElementById('logoPath').value = logoPath;
+        loadLogoPreview(logoPath);
+        updatePreview();
+      }
+    });
+  }
+}
+
+function browseLogo() {
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.select_logo_file().then(path => {
+      if (path) {
+        document.getElementById('logoPath').value = path;
+        loadLogoPreview(path);
+        updatePreview();
+        appendLog('Logo seçildi: ' + path.split(/[\\/]/).pop(), 'info');
+      }
+    });
+  }
+}
+
+function startProcess() {
+  if (!State.currentStudioPath) {
+    appendLog('⚠️ Önce bir video seçin!', 'warning');
+    return;
+  }
+  const options = {
+    source_path: State.currentStudioPath,
+    logo_enabled: document.getElementById('chkLogo').checked,
+    logo_path: document.getElementById('logoPath').value.trim() || null,
+    logo_scale: parseInt(document.getElementById('sliderLogoScale').value) / 100,
+    logo_x: State.logoRelX,
+    logo_y: State.logoRelY,
+    blur_enabled: document.getElementById('chkBlur').checked,
+    blur_x: State.blurRelX,
+    blur_y: State.blurRelY,
+    blur_w: parseInt(document.getElementById('sliderBlurW').value) / 100,
+    blur_h: parseInt(document.getElementById('sliderBlurH').value) / 100,
+    text_watermark: document.getElementById('textWatermark').value.trim() || null,
+    quality_label: State.quality
+  };
+
+  const btn = document.getElementById('btnProcess');
+  btn.disabled = true;
+  btn.textContent = '⏳ İşleniyor...';
+  document.getElementById('processProgressWrap').style.display = '';
+
+  appendLog('🎨 Video işleniyor...', 'info');
+
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.start_process(options);
+  }
+}
+
+window.onProcessComplete = function(outPath) {
+  const btn = document.getElementById('btnProcess');
+  btn.disabled = false;
+  btn.textContent = '✨ Videoyu İşle ve Yüksek Kalitede Kaydet';
+  document.getElementById('processProgressWrap').style.display = 'none';
+  appendLog('🎉 İşlem tamamlandı! → ' + (outPath.split(/[\\/]/).pop()), 'success');
+  refreshQueueGrid();
+  setTimeout(() => switchTab('queue'), 500);
+};
+
+// ────────────────────────────────────────────────────────────
+// CANVAS PREVIEW (9:16 overlay with drag support)
+// ────────────────────────────────────────────────────────────
+
+let canvasCtx = null;
+let logoPosX = 0.78, logoPosY = 0.88;
+let blurPosX = 0.65, blurPosY = 0.88;
+let logoImg = null;
+let isDraggingLogo = false, isDraggingBlur = false;
+let dragStartX, dragStartY, dragObjStartX, dragObjStartY;
+
+function initPreviewCanvas() {
+  const canvas = document.getElementById('previewCanvas');
+  if (!canvas) return;
+  canvasCtx = canvas.getContext('2d');
+  drawOverlay();
+}
+
+function loadLogoPreview(path) {
+  if (!path) { logoImg = null; drawOverlay(); return; }
+  const img = new Image();
+  img.onload = () => { logoImg = img; drawOverlay(); };
+  img.onerror = () => { logoImg = null; };
+  img.src = 'file:///' + path.replace(/\\/g, '/');
+}
+
+function updatePreview() {
+  // Re-read slider values
+  State.logoRelX = logoPosX;
+  State.logoRelY = logoPosY;
+  State.blurRelX = blurPosX;
+  State.blurRelY = blurPosY;
+  drawOverlay();
+}
+
+function drawOverlay() {
+  const canvas = document.getElementById('previewCanvas');
+  if (!canvasCtx || !canvas) return;
+  const W = canvas.width;   // 240
+  const H = canvas.height;  // 426
+
+  canvasCtx.clearRect(0, 0, W, H);
+
+  // Draw blur box
+  const blurEnabled = document.getElementById('chkBlur') && document.getElementById('chkBlur').checked;
+  if (blurEnabled) {
+    const bw = parseInt(document.getElementById('sliderBlurW').value) / 100 * W;
+    const bh = parseInt(document.getElementById('sliderBlurH').value) / 100 * H;
+    const bx = blurPosX * W - bw / 2;
+    const by = blurPosY * H - bh / 2;
+
+    canvasCtx.save();
+    canvasCtx.globalAlpha = 0.65;
+    canvasCtx.fillStyle = '#000000';
+    canvasCtx.fillRect(bx, by, bw, bh);
+    canvasCtx.globalAlpha = 1.0;
+
+    // Blur box border
+    canvasCtx.strokeStyle = '#4F46E5';
+    canvasCtx.lineWidth = 1;
+    canvasCtx.setLineDash([4, 3]);
+    canvasCtx.strokeRect(bx, by, bw, bh);
+    canvasCtx.setLineDash([]);
+
+    // Handle
+    drawDragHandle(bx + bw / 2, by + bh / 2, '#4F46E5', 'B');
+    canvasCtx.restore();
+  }
+
+  // Draw logo
+  const logoEnabled = document.getElementById('chkLogo') && document.getElementById('chkLogo').checked;
+  if (logoEnabled && logoImg) {
+    const logoScale = parseInt(document.getElementById('sliderLogoScale').value) / 100;
+    const lw = W * logoScale;
+    const lh = lw * logoImg.height / logoImg.width;
+    const lx = logoPosX * W - lw / 2;
+    const ly = logoPosY * H - lh / 2;
+    canvasCtx.drawImage(logoImg, lx, ly, lw, lh);
+    drawDragHandle(logoPosX * W, logoPosY * H, '#7C3AED', 'L');
+  } else if (logoEnabled) {
+    // Show placeholder dot
+    drawDragHandle(logoPosX * W, logoPosY * H, '#7C3AED', 'L');
+  }
+
+  // Text watermark
+  const text = document.getElementById('textWatermark') && document.getElementById('textWatermark').value;
+  if (text) {
+    canvasCtx.save();
+    canvasCtx.font = 'bold 11px Inter, sans-serif';
+    canvasCtx.fillStyle = '#FFFFFF';
+    canvasCtx.globalAlpha = 0.8;
+    canvasCtx.textAlign = 'center';
+    canvasCtx.fillText(text, W / 2, H - 20);
+    canvasCtx.restore();
+  }
+}
+
+function drawDragHandle(cx, cy, color, label) {
+  const r = 10;
+  canvasCtx.save();
+  canvasCtx.beginPath();
+  canvasCtx.arc(cx, cy, r, 0, Math.PI * 2);
+  canvasCtx.fillStyle = color;
+  canvasCtx.globalAlpha = 0.8;
+  canvasCtx.fill();
+  canvasCtx.globalAlpha = 1;
+  canvasCtx.fillStyle = '#fff';
+  canvasCtx.font = 'bold 8px Inter, sans-serif';
+  canvasCtx.textAlign = 'center';
+  canvasCtx.textBaseline = 'middle';
+  canvasCtx.fillText(label, cx, cy);
+  canvasCtx.restore();
+}
+
+function setupPreviewDrag() {
+  const canvas = document.getElementById('previewCanvas');
+  if (!canvas) return;
+
+  canvas.style.pointerEvents = 'all';
+  canvas.style.cursor = 'crosshair';
+
+  canvas.addEventListener('mousedown', e => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) / rect.width;
+    const my = (e.clientY - rect.top) / rect.height;
+
+    const blurEnabled = document.getElementById('chkBlur').checked;
+    const logoEnabled = document.getElementById('chkLogo').checked;
+
+    // Check if near blur handle
+    const nearBlur = blurEnabled && dist(mx, my, blurPosX, blurPosY) < 0.06;
+    const nearLogo = logoEnabled && dist(mx, my, logoPosX, logoPosY) < 0.06;
+
+    if (nearBlur) {
+      isDraggingBlur = true;
+      canvas.style.cursor = 'move';
+    } else if (nearLogo) {
+      isDraggingLogo = true;
+      canvas.style.cursor = 'move';
+    }
+  });
+
+  canvas.addEventListener('mousemove', e => {
+    if (!isDraggingLogo && !isDraggingBlur) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = Math.max(0.02, Math.min(0.98, (e.clientX - rect.left) / rect.width));
+    const my = Math.max(0.02, Math.min(0.98, (e.clientY - rect.top) / rect.height));
+
+    if (isDraggingLogo) { logoPosX = mx; logoPosY = my; State.logoRelX = mx; State.logoRelY = my; }
+    if (isDraggingBlur) { blurPosX = mx; blurPosY = my; State.blurRelX = mx; State.blurRelY = my; }
+
+    drawOverlay();
+  });
+
+  canvas.addEventListener('mouseup', () => {
+    isDraggingLogo = false;
+    isDraggingBlur = false;
+    canvas.style.cursor = 'crosshair';
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    isDraggingLogo = false;
+    isDraggingBlur = false;
+  });
+}
+
+function dist(ax, ay, bx, by) {
+  return Math.sqrt((ax - bx) ** 2 + (ay - by) ** 2);
+}
+
+// ────────────────────────────────────────────────────────────
+// QUEUE / UPLOAD TAB
+// ────────────────────────────────────────────────────────────
+
+function refreshQueueGrid() {
+  if (!window.pywebview || !window.pywebview.api) return;
+  window.pywebview.api.get_processed_videos().then(videos => {
+    State.processedVideos = videos;
+    renderVideoGrid('queueGrid', 'queueEmpty', videos, {
+      showUpload: true, showDelete: true
+    });
+  }).catch(() => {});
+}
+
+function toggleChip(platform) {
+  const chip = document.getElementById('chip-' + platform);
+  const chk = document.getElementById('chk' + platform.charAt(0).toUpperCase() + platform.slice(1));
+  if (chk.checked) {
+    chip.classList.add('checked');
+  } else {
+    chip.classList.remove('checked');
+  }
+}
+
+function getSelectedPlatforms() {
+  return {
+    instagram: document.getElementById('chkIg').checked,
+    youtube:   document.getElementById('chkYt').checked,
+    tiktok:    document.getElementById('chkTt').checked,
+    threads:   document.getElementById('chkTh').checked,
+    facebook:  document.getElementById('chkFb').checked
+  };
+}
+
+function openUploadModal(videoPath, filename, caption, hashtagsStr) {
+  State.uploadTargetPath = videoPath;
+  document.getElementById('uploadVideoName').textContent = filename;
+
+  // Auto-fill caption from sidecar
+  let captionText = '';
+  if (caption) captionText = caption;
+  if (hashtagsStr && !captionText.includes(hashtagsStr)) {
+    captionText = captionText ? captionText + '\n\n' + hashtagsStr : hashtagsStr;
+  }
+
+  // Try to fetch fresh sidecar
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.get_sidecar_meta(videoPath).then(meta => {
+      if (meta) {
+        let text = meta.caption || '';
+        const tags = meta.hashtags_str || '';
+        if (tags && !text.includes(tags)) {
+          text = text ? text + '\n\n' + tags : tags;
+        }
+        document.getElementById('uploadCaptionInput').value = text;
+      }
+    }).catch(() => {
+      document.getElementById('uploadCaptionInput').value = captionText;
+    });
+  } else {
+    document.getElementById('uploadCaptionInput').value = captionText;
+  }
+
+  openModal('uploadModal');
+}
+
+function confirmUpload() {
+  const videoPath = State.uploadTargetPath;
+  if (!videoPath) return;
+
+  const platforms = getSelectedPlatforms();
+  const active = Object.keys(platforms).filter(k => platforms[k]);
+  if (active.length === 0) {
+    appendLog('⚠️ Lütfen en az bir platform seçin!', 'warning');
+    return;
+  }
+
+  const caption = document.getElementById('uploadCaptionInput').value.trim();
+
+  closeModal('uploadModal');
+  appendLog('🚀 Yükleme başlatılıyor: ' + active.map(p => p.toUpperCase()).join(', '), 'info');
+
+  const btn = document.getElementById('btnConfirmUpload');
+  btn.disabled = true;
+
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.upload_video(videoPath, platforms, caption).then(res => {
+      btn.disabled = false;
+    }).catch(() => { btn.disabled = false; });
+  }
+}
+
+window.onUploadComplete = function(results) {
+  const btn = document.getElementById('btnConfirmUpload');
+  if (btn) btn.disabled = false;
+
+  let msg = '';
+  Object.entries(results).forEach(([platform, result]) => {
+    const icon = result.success ? '✅' : '❌';
+    msg += icon + ' ' + platform.toUpperCase() + ': ' + (result.message || '').substring(0, 80) + '\n';
+    appendLog(icon + ' ' + platform.toUpperCase() + ': ' + (result.success ? 'Başarılı' : result.message), result.success ? 'success' : 'error');
+  });
+};
+
+// ────────────────────────────────────────────────────────────
+// API KEYS TAB
+// ────────────────────────────────────────────────────────────
+
+function loadApiKeys() {
+  if (!window.pywebview || !window.pywebview.api) return;
+  window.pywebview.api.get_api_keys().then(keys => {
+    if (!keys || keys.error) return;
+
+    // Instagram
+    const auth = keys.instagram_auth || {};
+    safeSet('igAccountId', keys.instagram_account_id || '');
+    safeSet('igAccessToken', keys.instagram_access_token || '');
+    safeSet('igUsername', auth.username || '');
+    safeSet('igPassword', auth.password || '');
+    safeSet('igSessionId', auth.sessionid || '');
+    safeCheck('chkHesapsiz', auth.use_hesapsiz || false);
+
+    // YouTube
+    safeSet('ytClientId', keys.youtube_client_id || '');
+    safeSet('ytClientSecret', keys.youtube_client_secret || '');
+    safeSet('ytRefreshToken', keys.youtube_refresh_token || '');
+    safeSet('ytApiKey', keys.youtube_api_key || '');
+
+    // TikTok
+    safeSet('ttOpenId', keys.tiktok_open_id || '');
+    safeSet('ttAccessToken', keys.tiktok_access_token || '');
+
+    // Facebook
+    safeSet('fbPageId', keys.facebook_page_id || '');
+
+    // Threads
+    safeSet('thUserId', keys.threads_user_id || '');
+
+    updateApiStatusDots(keys);
+  }).catch(() => {});
+}
+
+function safeSet(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.value = val;
+}
+
+function safeCheck(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.checked = val;
+}
+
+function updateApiStatusDots(keys) {
+  const setDot = (id, ok) => {
+    const dot = document.getElementById(id);
+    if (dot) {
+      dot.className = 'status-dot ' + (ok ? 'ok' : 'unknown');
+    }
+  };
+  setDot('dotIg', !!(keys.instagram_account_id && keys.instagram_access_token));
+  setDot('dotYt', !!(keys.youtube_client_id && keys.youtube_refresh_token));
+  setDot('dotTt', !!keys.tiktok_access_token);
+  setDot('dotFb', !!keys.facebook_page_id);
+  setDot('dotTh', !!(keys.threads_user_id || keys.instagram_account_id));
+}
+
+function saveApiKeys() {
+  const data = {
+    instagram_account_id: document.getElementById('igAccountId').value.trim(),
+    instagram_access_token: document.getElementById('igAccessToken').value.trim(),
+    instagram_auth: {
+      username: document.getElementById('igUsername').value.trim(),
+      password: document.getElementById('igPassword').value,
+      sessionid: document.getElementById('igSessionId').value.trim(),
+      use_hesapsiz: document.getElementById('chkHesapsiz').checked
+    },
+    youtube_client_id:     document.getElementById('ytClientId').value.trim(),
+    youtube_client_secret: document.getElementById('ytClientSecret').value.trim(),
+    youtube_refresh_token: document.getElementById('ytRefreshToken').value.trim(),
+    youtube_api_key:       document.getElementById('ytApiKey').value.trim(),
+    tiktok_open_id:        document.getElementById('ttOpenId').value.trim(),
+    tiktok_access_token:   document.getElementById('ttAccessToken').value.trim(),
+    facebook_page_id:      document.getElementById('fbPageId').value.trim(),
+    threads_user_id:       document.getElementById('thUserId').value.trim()
+  };
+
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.save_api_keys(data).then(res => {
+      if (res.success) {
+        appendLog('✅ API anahtarları kaydedildi.', 'success');
+        updateApiStatusDots(data);
+      } else {
+        appendLog('❌ Kaydetme hatası: ' + (res.error || ''), 'error');
+      }
+    });
+  }
+}
+
+function testInstagramApi() {
+  const resultEl = document.getElementById('igTestResult');
+  if (resultEl) resultEl.textContent = '⏳ Test ediliyor...';
+
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.test_instagram_api().then(res => {
+      if (resultEl) {
+        resultEl.textContent = res.message;
+        resultEl.style.color = res.success ? 'var(--text-green)' : 'var(--danger)';
+      }
+      appendLog(res.message, res.success ? 'success' : 'error');
+    });
+  }
+}
+
+function toggleApiSection(id) {
+  const body = document.getElementById('body' + id.charAt(0).toUpperCase() + id.slice(1));
+  const chevron = document.getElementById('chevron' + id.charAt(0).toUpperCase() + id.slice(1));
+  if (!body) return;
+  const collapsed = body.classList.toggle('collapsed');
+  if (chevron) chevron.textContent = collapsed ? '▶' : '▼';
+}
+
+// ────────────────────────────────────────────────────────────
+// SETTINGS TAB
+// ────────────────────────────────────────────────────────────
+
+function openFolder(folderType) {
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.open_folder(folderType);
+  }
+}
+
+function saveQualitySetting() {
+  State.quality = document.getElementById('selQuality').value;
+  appendLog('🎥 Video kalitesi: ' + State.quality, 'info');
+}
+
+// ────────────────────────────────────────────────────────────
+// UTILITY
+// ────────────────────────────────────────────────────────────
+
+function deleteVideoConfirm(videoPath, cardEl) {
+  if (!confirm('Bu videoyu silmek istediğinizden emin misiniz?\n' + videoPath.split(/[\\/]/).pop())) return;
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.delete_video(videoPath).then(res => {
+      if (res.success && cardEl) {
+        cardEl.style.opacity = '0';
+        cardEl.style.transition = 'opacity 0.2s';
+        setTimeout(() => cardEl.remove(), 200);
+      }
+    });
+  }
+}

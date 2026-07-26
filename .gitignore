@@ -8,6 +8,10 @@ build/
 dist/
 *.manifest
 *.spec
+app_payload.zip
+*.zip
+*.exe
+*.old*
 
 # Downloads and Output
 downloads/

@@ -1,5 +1,5 @@
 {
-  "version": "1.1.0",
-  "download_url": "https://github.com/bkara87/VidDownUPload/releases/download/v1.1.0/VidDownUPload_Setup_v1.1.0.exe",
-  "release_notes": "Sürüm 1.1.0: Ultra premium arayüz yenileme (glassmorphism, violet gradient, spectrum equalizer), YouTube Shorts OAuth2 gerçek yükleme, TikTok Content Posting API v2, Facebook Reels API, Threads Meta Graph API, video önizleme PIL önbelleği optimizasyonu, 800ms debounce URL çekme, FFmpeg yüksek kalite preset (CRF 18, slow, 192k ses, faststart), toplu indirme hata düzeltmesi."
+  "version": "2.0.0",
+  "download_url": "https://github.com/bkara87/VidDownUPload/releases/download/v2.0.0/VidDownUPload_Setup_v2.0.0.exe",
+  "release_notes": "Sürüm 2.0.0: Tam yeniden yazım! PyWebView tabanlı yerleşik browser (Edge WebView2) üzerinde çalışan premium HTML/CSS/JS arayüz. Adres çubuğu yok, masaüstü uygulaması gibi çalışır. Yeni özellikler: 9:16 canvas önizleme ile drag&drop logo/blur konumu, otomatik caption doldurma (kanal adı silinmiş hashtag'ler), video ID ile kayıt, stüdyo paylaşım entegrasyonu."
 }

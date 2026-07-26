@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VidDownUPload Studio v2.0 — Video İndirici &amp; Filigran &amp; Paylaşım</title>
+  <meta name="description" content="Instagram, YouTube, TikTok, Facebook ve Threads için video indirme, filigran işleme ve otomatik paylaşım uygulaması.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-root">
+
+  <!-- ═══════════════════ HEADER ═══════════════════ -->
+  <header class="app-header">
+    <div class="header-brand">
+      <div class="brand-icon">⬇</div>
+      <div>
+        <div class="flex items-center gap-8">
+          <span class="brand-title">VidDownUPload</span>
+          <span class="version-badge" id="appVersion">v2.0.0</span>
+        </div>
+        <div class="brand-sub">Instagram • YouTube • TikTok • Facebook • Threads</div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <div class="live-badge">
+        <div class="live-dot"></div>
+        LIVE
+      </div>
+      <button class="btn btn-secondary" id="btnUpdate" onclick="checkUpdates()">
+        🔄 Güncelle
+      </button>
+    </div>
+  </header>
+
+  <!-- ═══════════════════ TABS ═══════════════════ -->
+  <div class="tab-bar" role="tablist">
+    <button class="tab-btn active" id="tab-download" onclick="switchTab('download')" role="tab" aria-selected="true">
+      ⬇️ İndirici
+    </button>
+    <button class="tab-btn" id="tab-studio" onclick="switchTab('studio')" role="tab">
+      🎨 Stüdyo
+    </button>
+    <button class="tab-btn" id="tab-queue" onclick="switchTab('queue')" role="tab">
+      🚀 Paylaşım
+    </button>
+    <button class="tab-btn" id="tab-api" onclick="switchTab('api')" role="tab">
+      🔑 API
+    </button>
+    <button class="tab-btn" id="tab-settings" onclick="switchTab('settings')" role="tab">
+      ⚙️ Ayarlar
+    </button>
+  </div>
+
+  <!-- ═══════════════════ WORKSPACE ═══════════════════ -->
+  <div class="workspace">
+
+    <!-- ╔══════════════════════════════════════╗ -->
+    <!-- ║       TAB 1 — İNDİRİCİ              ║ -->
+    <!-- ╚══════════════════════════════════════╝ -->
+    <section id="panel-download" class="tab-panel active">
+      <div class="download-layout">
+
+        <!-- URL Input Card -->
+        <div class="download-top">
+          <div class="card">
+            <div class="card-body">
+              <div class="input-row">
+                <input type="url" id="urlInput"
+                  placeholder="https://www.instagram.com/reel/... veya YouTube / TikTok bağlantısı yapıştırın"
+                  autocomplete="off"
+                  oninput="onUrlInput(this.value)"
+                  onkeydown="if(event.key==='Enter') startDownload()"
+                >
+                <button class="btn btn-primary btn-lg" id="btnDownload" onclick="startDownload()" style="min-width:120px;">
+                  ⬇️ İndir
+                </button>
+                <button class="btn btn-secondary btn-lg" id="btnScan" onclick="startScanProfile()" style="min-width:90px;" title="Profil/Kanal Videolarını Tara">
+                  🔍 Tara
+                </button>
+              </div>
+
+              <!-- URL Preview Card -->
+              <div class="url-info-card" id="urlInfoCard">
+                <img class="url-thumb" id="urlThumb" src="" alt="">
+                <div class="url-info-meta">
+                  <div class="url-info-title" id="urlTitle">—</div>
+                  <div class="url-info-sub" id="urlSub">—</div>
+                </div>
+              </div>
+
+              <!-- Download Progress -->
+              <div id="dlProgressWrap" style="display:none; margin-top:8px;">
+                <div class="progress-bar indeterminate"><div class="progress-fill"></div></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Profile Scan Results -->
+          <div id="profileResultsWrap" style="display:none; margin-top:8px;">
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">🎬 Profilde Bulunan Videolar</div>
+                <div class="flex gap-8">
+                  <span id="profileResultCount" class="text-muted text-sm"></span>
+                  <button class="btn btn-success" id="btnBatchDownload" onclick="batchDownloadAll()" style="height:28px; font-size:11px;">
+                    ⚡ Tümünü İndir
+                  </button>
+                </div>
+              </div>
+              <div class="card-body" style="padding:10px;">
+                <div class="profile-results" id="profileResults"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Downloaded Videos Grid -->
+        <div class="download-grid">
+          <div class="section-header">
+            <div class="section-title">📁 İndirilen Videolar</div>
+            <button class="btn btn-secondary" onclick="refreshDownloads()" style="height:28px; font-size:11px;">
+              🔄 Yenile
+            </button>
+          </div>
+          <div class="video-grid" id="downloadGrid">
+            <div class="empty-state" id="downloadEmpty">
+              <div class="empty-state-icon">📥</div>
+              <div class="empty-state-text">Henüz indirilen video yok.<br>Yukarıya bir bağlantı yapıştırın.</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ╔══════════════════════════════════════╗ -->
+    <!-- ║       TAB 2 — STÜDYO                ║ -->
+    <!-- ╚══════════════════════════════════════╝ -->
+    <section id="panel-studio" class="tab-panel">
+      <div class="studio-layout">
+
+        <!-- Left: Controls -->
+        <div class="studio-left">
+
+          <!-- Presets -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">⚡ Hızlı Şablonlar</div>
+            </div>
+            <div class="card-body flex gap-8">
+              <button class="btn btn-secondary flex-1" onclick="applyPreset('reels')">📸 Reels</button>
+              <button class="btn btn-secondary flex-1" onclick="applyPreset('tiktok')">🎵 TikTok</button>
+              <button class="btn btn-secondary flex-1" onclick="applyPreset('shorts')">▶️ Shorts</button>
+            </div>
+          </div>
+
+          <!-- Logo Card -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">🎭 Logo / Filigran Ekle</div>
+              <label class="check-row">
+                <input type="checkbox" id="chkLogo" checked onchange="updatePreview()">
+                <span class="text-sm">Aktif</span>
+              </label>
+            </div>
+            <div class="card-body flex flex-col gap-8">
+              <div class="input-row">
+                <input type="text" id="logoPath" placeholder="Logo PNG dosyası..." readonly>
+                <button class="btn btn-secondary" onclick="browseLogo()" style="min-width:75px;">📁 Seç</button>
+              </div>
+              <!-- Preset logos -->
+              <div class="flex gap-8">
+                <button class="btn btn-secondary flex-1 text-sm" onclick="setLogoPreset('logo_724mizah_transparent.png')">✨ Şeffaf</button>
+                <button class="btn btn-secondary flex-1 text-sm" onclick="setLogoPreset('logo_724mizah_dark.png')">⬛ Siyah</button>
+                <button class="btn btn-secondary flex-1 text-sm" onclick="setLogoPreset('logo_724mizah_light.png')">⬜ Beyaz</button>
+              </div>
+              <!-- Logo scale slider -->
+              <div>
+                <label class="form-label">Logo Boyutu</label>
+                <div class="slider-row">
+                  <input type="range" id="sliderLogoScale" min="8" max="45" value="22" oninput="updatePreview(); document.getElementById('logoScaleVal').textContent = this.value + '%'">
+                  <span class="slider-value" id="logoScaleVal">22%</span>
+                </div>
+              </div>
+              <!-- Logo position (displayed on canvas via drag) -->
+              <div class="text-muted text-sm">📌 Logo konumunu önizlemede sürükleyin</div>
+            </div>
+          </div>
+
+          <!-- Blur Mask Card -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">🔲 Eski Filigranı Kapat (Blur)</div>
+              <label class="check-row">
+                <input type="checkbox" id="chkBlur" checked onchange="updatePreview()">
+                <span class="text-sm">Aktif</span>
+              </label>
+            </div>
+            <div class="card-body flex flex-col gap-8">
+              <div>
+                <label class="form-label">Blur Genişliği</label>
+                <div class="slider-row">
+                  <input type="range" id="sliderBlurW" min="10" max="60" value="35" oninput="updatePreview(); document.getElementById('blurWVal').textContent = this.value + '%'">
+                  <span class="slider-value" id="blurWVal">35%</span>
+                </div>
+              </div>
+              <div>
+                <label class="form-label">Blur Yüksekliği</label>
+                <div class="slider-row">
+                  <input type="range" id="sliderBlurH" min="5" max="35" value="12" oninput="updatePreview(); document.getElementById('blurHVal').textContent = this.value + '%'">
+                  <span class="slider-value" id="blurHVal">12%</span>
+                </div>
+              </div>
+              <div class="text-muted text-sm">📌 Blur konumunu önizlemede sürükleyin</div>
+            </div>
+          </div>
+
+          <!-- Text Watermark -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">✍️ Yazı Filigranı</div>
+            </div>
+            <div class="card-body">
+              <input type="text" id="textWatermark" placeholder="ör: @724MizahDeposu" oninput="updatePreview()">
+            </div>
+          </div>
+
+          <!-- Process Button -->
+          <button class="btn btn-success btn-lg btn-full" id="btnProcess" onclick="startProcess()">
+            ✨ Videoyu İşle ve Yüksek Kalitede Kaydet
+          </button>
+          <div id="processProgressWrap" style="display:none;">
+            <div class="progress-bar indeterminate"><div class="progress-fill"></div></div>
+          </div>
+
+        </div>
+
+        <!-- Right: Preview + Grid -->
+        <div class="studio-right">
+          <div class="card" style="flex-shrink:0;">
+            <div class="card-header">
+              <div class="card-title">🎬 9:16 Canlı Önizleme</div>
+              <span class="text-muted text-sm" id="studioFileName">— Video seçin —</span>
+            </div>
+            <div class="card-body" style="display:flex; justify-content:center; padding:12px;">
+              <div class="preview-container" id="previewContainer">
+                <video class="preview-video" id="previewVideo" loop muted playsinline>
+                  <source src="" type="video/mp4">
+                </video>
+                <canvas class="preview-canvas" id="previewCanvas" width="240" height="426"></canvas>
+                <!-- Draggable overlays (logo, blur) rendered via JS -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Studio video grid -->
+          <div class="min-h-0 flex flex-col">
+            <div class="section-header">
+              <div class="section-title">📂 Video Seç</div>
+              <button class="btn btn-secondary" onclick="refreshStudioGrid()" style="height:28px; font-size:11px;">🔄</button>
+            </div>
+            <div class="video-grid overflow-auto flex-1" id="studioGrid">
+              <div class="empty-state">
+                <div class="empty-state-icon">🎬</div>
+                <div class="empty-state-text">İndirici sekmesinden video indirin.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ╔══════════════════════════════════════╗ -->
+    <!-- ║       TAB 3 — PAYLAŞIM              ║ -->
+    <!-- ╚══════════════════════════════════════╝ -->
+    <section id="panel-queue" class="tab-panel">
+      <div class="queue-layout">
+
+        <!-- Platform Selection -->
+        <div class="card" style="flex-shrink:0;">
+          <div class="card-header">
+            <div class="card-title">🎯 Paylaşım Platformları</div>
+            <span class="text-muted text-sm">İşaretlenen platformlara paylaşılır</span>
+          </div>
+          <div class="card-body">
+            <div class="platform-grid">
+              <label class="platform-chip ig checked" id="chip-ig">
+                <input type="checkbox" id="chkIg" checked onchange="toggleChip('ig')">
+                📸 Instagram
+              </label>
+              <label class="platform-chip yt" id="chip-yt">
+                <input type="checkbox" id="chkYt" onchange="toggleChip('yt')">
+                ▶️ YouTube
+              </label>
+              <label class="platform-chip tt" id="chip-tt">
+                <input type="checkbox" id="chkTt" onchange="toggleChip('tt')">
+                🎵 TikTok
+              </label>
+              <label class="platform-chip th" id="chip-th">
+                <input type="checkbox" id="chkTh" onchange="toggleChip('th')">
+                🧵 Threads
+              </label>
+              <label class="platform-chip fb" id="chip-fb">
+                <input type="checkbox" id="chkFb" onchange="toggleChip('fb')">
+                📘 Facebook
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Processed Videos Grid -->
+        <div class="queue-grid">
+          <div class="section-header">
+            <div class="section-title">🎬 İşlenmiş Videolar — Platforma Yükle</div>
+            <button class="btn btn-secondary" onclick="refreshQueueGrid()" style="height:28px; font-size:11px;">🔄 Yenile</button>
+          </div>
+          <div class="video-grid" id="queueGrid">
+            <div class="empty-state" id="queueEmpty">
+              <div class="empty-state-icon">🚀</div>
+              <div class="empty-state-text">Henüz işlenmiş video yok.<br>Stüdyo sekmesinden video işleyin.</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ╔══════════════════════════════════════╗ -->
+    <!-- ║       TAB 4 — API                   ║ -->
+    <!-- ╚══════════════════════════════════════╝ -->
+    <section id="panel-api" class="tab-panel">
+      <div class="api-layout">
+
+        <div style="display:flex; align-items:center; justify-content:space-between; flex-shrink:0;">
+          <div>
+            <div class="section-title" style="font-size:16px;">🔑 API Yönetimi &amp; Hesap Bilgileri</div>
+            <div class="text-muted mt-4">Instagram, YouTube, TikTok, Threads ve Facebook API anahtarlarını kaydedin.</div>
+          </div>
+          <button class="btn btn-primary" id="btnSaveApi" onclick="saveApiKeys()">💾 Tümünü Kaydet</button>
+        </div>
+
+        <!-- Instagram -->
+        <div class="api-section">
+          <div class="api-section-header" onclick="toggleApiSection('ig')">
+            <div class="flex items-center gap-8">
+              <span>📸 Instagram</span>
+              <span class="status-dot" id="dotIg"></span>
+            </div>
+            <span id="chevronIg">▼</span>
+          </div>
+          <div class="api-section-body" id="bodyIg">
+            <div>
+              <label class="form-label">Instagram Account ID (Sayısal ID)</label>
+              <input type="text" id="igAccountId" placeholder="örn: 17841400000000">
+            </div>
+            <div>
+              <label class="form-label">Meta Graph API Access Token (EAAG...)</label>
+              <input type="text" id="igAccessToken" placeholder="EAAG...">
+            </div>
+            <div class="divider"></div>
+            <div>
+              <label class="form-label">Instagram Kullanıcı Adı (Doğrudan Giriş)</label>
+              <input type="text" id="igUsername" placeholder="@kullanici_adi">
+            </div>
+            <div>
+              <label class="form-label">Instagram Şifre</label>
+              <input type="password" id="igPassword" placeholder="Şifre">
+            </div>
+            <div>
+              <label class="form-label">Session ID (Cookie) — İsteğe bağlı</label>
+              <input type="text" id="igSessionId" placeholder="sessionid=xxxxx">
+            </div>
+            <label class="check-row mt-8">
+              <input type="checkbox" id="chkHesapsiz">
+              <span class="text-sm">Hesapsız (cookie-free) mod kullan</span>
+            </label>
+            <div class="flex gap-8 mt-8">
+              <button class="btn btn-secondary" onclick="testInstagramApi()">⚡ API Bağlantısını Test Et</button>
+            </div>
+            <div id="igTestResult" class="text-sm mt-4" style="color:var(--text-muted);"></div>
+          </div>
+        </div>
+
+        <!-- YouTube -->
+        <div class="api-section">
+          <div class="api-section-header" onclick="toggleApiSection('yt')">
+            <div class="flex items-center gap-8">
+              <span>▶️ YouTube</span>
+              <span class="status-dot" id="dotYt"></span>
+            </div>
+            <span id="chevronYt">▼</span>
+          </div>
+          <div class="api-section-body collapsed" id="bodyYt">
+            <div>
+              <label class="form-label">YouTube OAuth2 Client ID</label>
+              <input type="text" id="ytClientId" placeholder="xxxxx.apps.googleusercontent.com">
+            </div>
+            <div>
+              <label class="form-label">YouTube OAuth2 Client Secret</label>
+              <input type="password" id="ytClientSecret" placeholder="GOCSPX-...">
+            </div>
+            <div>
+              <label class="form-label">YouTube Refresh Token</label>
+              <input type="text" id="ytRefreshToken" placeholder="1//...">
+            </div>
+            <div>
+              <label class="form-label">YouTube API Key (Data API v3) — İsteğe bağlı</label>
+              <input type="text" id="ytApiKey" placeholder="AIzaSy...">
+            </div>
+          </div>
+        </div>
+
+        <!-- TikTok -->
+        <div class="api-section">
+          <div class="api-section-header" onclick="toggleApiSection('tt')">
+            <div class="flex items-center gap-8">
+              <span>🎵 TikTok</span>
+              <span class="status-dot" id="dotTt"></span>
+            </div>
+            <span id="chevronTt">▼</span>
+          </div>
+          <div class="api-section-body collapsed" id="bodyTt">
+            <div>
+              <label class="form-label">TikTok Open ID</label>
+              <input type="text" id="ttOpenId" placeholder="TikTok Open ID">
+            </div>
+            <div>
+              <label class="form-label">TikTok Access Token</label>
+              <input type="text" id="ttAccessToken" placeholder="Content Posting API Token">
+            </div>
+          </div>
+        </div>
+
+        <!-- Facebook -->
+        <div class="api-section">
+          <div class="api-section-header" onclick="toggleApiSection('fb')">
+            <div class="flex items-center gap-8">
+              <span>📘 Facebook</span>
+              <span class="status-dot" id="dotFb"></span>
+            </div>
+            <span id="chevronFb">▼</span>
+          </div>
+          <div class="api-section-body collapsed" id="bodyFb">
+            <div>
+              <label class="form-label">Facebook Page ID</label>
+              <input type="text" id="fbPageId" placeholder="Facebook Sayfa ID (sayısal)">
+            </div>
+            <div class="alert alert-info mt-4">
+              ℹ️ Facebook Reels için Meta Graph API Access Token kullanılır (Instagram ile aynı token).
+            </div>
+          </div>
+        </div>
+
+        <!-- Threads -->
+        <div class="api-section">
+          <div class="api-section-header" onclick="toggleApiSection('th')">
+            <div class="flex items-center gap-8">
+              <span>🧵 Threads</span>
+              <span class="status-dot" id="dotTh"></span>
+            </div>
+            <span id="chevronTh">▼</span>
+          </div>
+          <div class="api-section-body collapsed" id="bodyTh">
+            <div>
+              <label class="form-label">Threads User ID</label>
+              <input type="text" id="thUserId" placeholder="Threads User ID (Instagram ID ile aynı olabilir)">
+            </div>
+            <div class="alert alert-info mt-4">
+              ℹ️ Threads için Meta Graph API Access Token kullanılır (Instagram ile aynı token).
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ╔══════════════════════════════════════╗ -->
+    <!-- ║       TAB 5 — AYARLAR               ║ -->
+    <!-- ╚══════════════════════════════════════╝ -->
+    <section id="panel-settings" class="tab-panel">
+      <div style="display:flex; flex-direction:column; gap:12px; max-width:640px;">
+
+        <div>
+          <div class="section-title" style="font-size:16px; margin-bottom:4px;">⚙️ Sistem Ayarları &amp; Güncelleme</div>
+          <div class="text-muted">Uygulama sürümü: <span id="settingsVersion" class="font-mono">v2.0.0</span></div>
+        </div>
+
+        <!-- Klasörler -->
+        <div class="card">
+          <div class="card-header"><div class="card-title">📂 Çıktı Klasörleri</div></div>
+          <div class="card-body flex gap-8">
+            <button class="btn btn-secondary flex-1" onclick="openFolder('downloads')">📁 İndirilen (downloads/)</button>
+            <button class="btn btn-secondary flex-1" onclick="openFolder('processed')">📁 İşlenmiş (processed/)</button>
+          </div>
+        </div>
+
+        <!-- Video Kalite -->
+        <div class="card">
+          <div class="card-header"><div class="card-title">🎥 FFmpeg Video Kalitesi</div></div>
+          <div class="card-body">
+            <label class="form-label">İşleme Kalite Profili</label>
+            <select id="selQuality" onchange="saveQualitySetting()">
+              <option value="Yüksek Kalite (Varsayılan)">✨ Yüksek Kalite (Varsayılan) — slow, CRF 18</option>
+              <option value="Hızlı (Düşük CPU)">🚀 Hızlı (Düşük CPU) — ultrafast, CRF 23</option>
+              <option value="Maksimum Kalite">🏆 Maksimum Kalite — veryslow, CRF 16</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Güncelleme -->
+        <div class="card">
+          <div class="card-header"><div class="card-title">🔄 GitHub Otomatik Güncelleme</div></div>
+          <div class="card-body">
+            <div class="text-muted text-sm mb-8">Depo: bkara87/VidDownUPload</div>
+            <button class="btn btn-secondary" onclick="checkUpdates()">🔍 Güncelleme Kontrol Et</button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </div><!-- /workspace -->
+
+  <!-- ═══════════════════ TERMINAL LOG ═══════════════════ -->
+  <div class="terminal-bar">
+    <div class="terminal-header">
+      <div class="terminal-title">
+        <div class="terminal-dot"></div>
+        CANLI İŞLEM GÜNLÜĞÜ
+      </div>
+      <div class="terminal-actions">
+        <button class="btn btn-secondary" id="btnToggleLog" onclick="toggleLog()" style="height:22px; font-size:10px; padding:0 8px;">▼ Gizle</button>
+        <button class="btn btn-secondary" onclick="clearLog()" style="height:22px; font-size:10px; padding:0 8px;">Temizle</button>
+      </div>
+    </div>
+    <div class="equalizer" id="equalizer"></div>
+    <div class="terminal-output" id="terminalOutput"></div>
+  </div>
+
+</div><!-- /app-root -->
+
+<!-- ═══════════════════ MODALS ═══════════════════ -->
+
+<!-- Update Modal -->
+<div class="modal-backdrop" id="updateModal">
+  <div class="modal-card">
+    <div class="modal-title">🚀 Yeni Güncelleme Mevcut!</div>
+    <p style="color:var(--text-muted);">
+      Yeni sürüm <strong id="newVerTag" style="color:var(--text-main);">v2.0.1</strong> tespit edildi.
+      Şimdi indirip yüklemek ister misiniz?
+    </p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('updateModal')">Daha Sonra</button>
+      <button class="btn btn-primary" id="btnApplyUpdate">⬇️ Şimdi Güncelle</button>
+    </div>
+  </div>
+</div>
+
+<!-- Upload Caption Modal -->
+<div class="modal-backdrop" id="uploadModal">
+  <div class="modal-card" style="max-width:520px;">
+    <div class="modal-title">🚀 Platforma Yükle</div>
+    <div style="margin-bottom:8px;">
+      <div class="text-muted text-sm" id="uploadVideoName"></div>
+    </div>
+    <label class="form-label">Caption / Açıklama (düzenleyebilirsiniz)</label>
+    <textarea id="uploadCaptionInput" style="min-height:120px; font-size:12px;"></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('uploadModal')">İptal</button>
+      <button class="btn btn-primary" id="btnConfirmUpload" onclick="confirmUpload()">🚀 Yükle</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
