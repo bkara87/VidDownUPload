@@ -6,7 +6,7 @@ import yt_dlp
 from pathlib import Path
 from typing import Callable, Optional, Dict, Any
 
-from src.config import BASE_DIR
+from src.config import BASE_DIR, FFMPEG_BINARY
 from src.downloader.instagram_auth import InstagramAuthManager
 
 class VideoDownloader:
@@ -197,6 +197,7 @@ class VideoDownloader:
             'outtmpl': os.path.join(self.download_dir, '%(title).50s_%(id)s.%(ext)s'),
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best',
             'merge_output_format': 'mp4',
+            'ffmpeg_location': FFMPEG_BINARY,
             'progress_hooks': [_yt_dlp_hook],
             'quiet': True,
             'no_warnings': True,

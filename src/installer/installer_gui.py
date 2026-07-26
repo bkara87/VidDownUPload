@@ -238,5 +238,7 @@ class SetupWindow(ctk.CTk):
             self.btn_install.configure(state="normal", text="Tekrar Dene")
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
     app = SetupWindow()
     app.mainloop()

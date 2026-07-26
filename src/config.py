@@ -22,5 +22,34 @@ GITHUB_REPO = "VidDownUPload"
 GITHUB_VERSION_URL = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/version.json"
 GITHUB_RELEASE_URL = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
 
-# FFmpeg settings
-FFMPEG_BINARY = "ffmpeg"  # Will default to embedded ffmpeg.exe if packaged or system ffmpeg
+import shutil
+
+def get_ffmpeg_path() -> str:
+    # 1. Check inside PyInstaller frozen bundle directory
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        bundle_ffmpeg = Path(sys._MEIPASS) / "ffmpeg.exe"
+        if bundle_ffmpeg.exists():
+            return str(bundle_ffmpeg)
+
+    # 2. Check executable or root directory
+    root_ffmpeg = BASE_DIR / "ffmpeg.exe"
+    if root_ffmpeg.exists():
+        return str(root_ffmpeg)
+
+    # 3. Check imageio_ffmpeg module
+    try:
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if exe and os.path.exists(exe):
+            return exe
+    except Exception:
+        pass
+
+    # 4. System PATH (excluding WindowsApps fake alias)
+    sys_ffmpeg = shutil.which("ffmpeg")
+    if sys_ffmpeg and "WindowsApps" not in sys_ffmpeg:
+        return sys_ffmpeg
+
+    return "ffmpeg"
+
+FFMPEG_BINARY = get_ffmpeg_path()

@@ -118,5 +118,7 @@ rmdir /s /q "{curr_dir}"
             messagebox.showerror("Hata", f"Kaldırma işlemi sırasında bir hata oluştu:\n{e}")
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
     app = UninstallerWindow()
     app.mainloop()

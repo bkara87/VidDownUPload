@@ -8,6 +8,7 @@ from typing import Optional, Tuple
 from PIL import Image
 
 from src.ui.preset_badges import render_badge_overlay
+from src.config import FFMPEG_BINARY
 
 # ─────────────────────────────────────────────────────────────────
 # Kalite Ön Ayarları (Kullanıcı Seçimi)
@@ -21,8 +22,8 @@ DEFAULT_QUALITY = "✨ Yüksek Kalite"
 
 
 class VideoProcessor:
-    def __init__(self, ffmpeg_path: str = "ffmpeg"):
-        self.ffmpeg_path = ffmpeg_path
+    def __init__(self, ffmpeg_path: Optional[str] = None):
+        self.ffmpeg_path = ffmpeg_path or FFMPEG_BINARY
         # Varsayılan kalite modu
         self.quality_preset = DEFAULT_QUALITY
 
