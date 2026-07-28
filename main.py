@@ -1,9 +1,16 @@
 import sys
 import os
+import io
 import multiprocessing
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
+
+# Force UTF-8 encoding for stdout/stderr to prevent charmap encoding errors with emojis on Windows
+if sys.stdout is not None and hasattr(sys.stdout, 'buffer'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if sys.stderr is not None and hasattr(sys.stderr, 'buffer'):
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 import webview
 from pathlib import Path
@@ -14,9 +21,12 @@ sys.path.insert(0, str(BASE_DIR))
 
 from src.api_bridge import ApiBridge
 from src.config import APP_NAME, APP_VERSION
+from src.utils.webview_stealth import apply_webview_stealth_patch
 
 
 def main():
+    apply_webview_stealth_patch()
+    webview.settings['OPEN_EXTERNAL_LINKS_IN_BROWSER'] = False
     api = ApiBridge()
     html_file = BASE_DIR / "web" / "index.html"
 
@@ -41,8 +51,9 @@ def main():
 
     api.set_window(window)
 
-    # Start PyWebView using native Windows Edge WebView2 engine (no address bar)
-    webview.start(debug=False)
+    # Start PyWebView using native Windows Edge WebView2 engine with standard Chrome User-Agent
+    chrome_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    webview.start(debug=False, user_agent=chrome_ua, private_mode=False)
 
 
 if __name__ == "__main__":

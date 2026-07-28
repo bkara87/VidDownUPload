@@ -7,7 +7,7 @@ import requests
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
-VERSION = "2.0.1"
+VERSION = "2.1.0"
 
 def get_current_version():
     ver_json = BASE_DIR / "version.json"
@@ -76,24 +76,18 @@ def publish_release(token=None):
     repo = "VidDownUPload"
 
     release_body = (
-        f"## VidDownUPload {tag_name} — Web Tabanlı Yerleşik Browser (Edge WebView2) 🚀\n\n"
-        "### ✨ Bu Sürümdeki Yenilikler (v2.0.0 Tam Yeniden Yazım):\n\n"
-        "**🌐 Standalone Web Uygulaması Mimarisi:**\n"
-        "- Chromium / Edge WebView2 tabanlı yerleşik browser üstünde kendi başına çalışan masaüstü web uygulaması\n"
-        "- Adres çubuğu olmadan tam masaüstü programı hissi\n"
-        "- 5 sekmeli ultra premium HTML/CSS/JS arayüz (İndirici, Stüdyo, Paylaşım, API Yönetimi, Ayarlar)\n"
-        "- Inter & JetBrains Mono tipografisi, glassmorphism kart tasarımı, canlı spectrum equalizer ve konsol terminali\n\n"
-        "**🎨 Stüdyo & 9:16 Canvas Önizleme:**\n"
-        "- HTML5 canvas ile 9:16 canlı video üzerinde sürükle-bırak (drag & drop) logo ve blur kutusu konumu belirleme\n"
-        "- Kanal logosu şablonları, boyut ölçeği, flulaştırma alanı ayarlamaları\n"
-        "- İsteğe bağlı özel yazı filigranı ekleme\n\n"
-        "**📥 Akıllı İndirici & ID + Etiket Kaydı:**\n"
-        "- İndirilen her video kendi ID'si ve etiket/yazısı (sidecar JSON) ile kaydedilir\n"
-        "- İndirilen kanala ait etiketler temizlenir, #724mizahdeposu ve genel etiketler otomatik eklenir\n"
-        "- Hesapsız profil/kanal reels tarama ve toplu indirme desteği\n\n"
-        "**🚀 Otomatik Paylaşım & Caption Doldurma:**\n"
-        "- Stüdyo ve Paylaşım aşamasında sidecar JSON'dan açıklama (caption) otomatik doldurulur ve kullanıcı tarafından düzenlenebilir\n"
-        "- Instagram, YouTube Shorts, TikTok, Facebook Reels, Threads çoklu platform paylaşım desteği\n\n"
+        f"## VidDownUPload {tag_name} — TikTok OAuth Güvenli Giriş Güncellemesi 🔐\n\n"
+        "### ✨ v2.1.0 Değişiklikleri:\n\n"
+        "**🔐 TikTok OAuth Güvenli Giriş Düzeltmesi:**\n"
+        "- Google, WebView2 (gömülü tarayıcı) ile yapılan TikTok/Google girişlerini artık engelliyor\n"
+        "- Uygulama içi popup yerine artık **sistem tarayıcınız** (Chrome/Edge) açılıyor\n"
+        "- Google hesabıyla TikTok girişi sorunsuz çalışıyor\n"
+        "- OAuth callback'i uygulama tarafından localhost üzerinden otomatik alınıyor\n"
+        "- Token ve Open ID otomatik kaydediliyor — kullanıcı müdahalesi yok\n\n"
+        "**🌐 Tarayıcı Tabanlı Güvenli OAuth Akışı:**\n"
+        "- `startTikTokAuthWizard('browser')` artık tek ve varsayılan mod\n"
+        "- Eski çift buton yerine tek temiz buton: \"TikTok ile Giriş Yap\"\n"
+        "- `api_bridge.py` varsayılan mode parametresi `browser` olarak güncellendi\n\n"
         "---\n"
         f"📥 **Kurulum için `{setup_name}.exe` dosyasını indirip çalıştırın.**"
     )

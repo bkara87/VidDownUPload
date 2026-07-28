@@ -4,7 +4,7 @@ import sys
 import tempfile
 import cv2
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any, List
 from PIL import Image
 
 from src.ui.preset_badges import render_badge_overlay
@@ -18,7 +18,16 @@ QUALITY_PRESETS = {
     "✨ Yüksek Kalite":        {"preset": "slow",      "crf": "18", "audio_br": "192k"},
     "🏆 Maksimum Kalite":      {"preset": "veryslow",  "crf": "16", "audio_br": "256k"},
 }
-DEFAULT_QUALITY = "✨ Yüksek Kalite"
+def safe_print(*args, **kwargs):
+    try:
+        msg = " ".join(str(a) for a in args)
+        if sys.stdout and hasattr(sys.stdout, 'buffer'):
+            sys.stdout.buffer.write((msg + "\n").encode("utf-8", errors="replace"))
+            sys.stdout.buffer.flush()
+        else:
+            print(msg.encode("ascii", errors="replace").decode("ascii"), **kwargs)
+    except Exception:
+        pass
 
 
 class VideoProcessor:
@@ -45,6 +54,20 @@ class VideoProcessor:
             pass
         return 1080, 1920
 
+    @staticmethod
+    def get_video_duration(video_path: str) -> float:
+        """Returns video duration in seconds using OpenCV."""
+        try:
+            cap = cv2.VideoCapture(video_path)
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+            cap.release()
+            if fps > 0 and frame_count > 0:
+                return frame_count / fps
+        except Exception:
+            pass
+        return 0.0
+
     def process_video(
         self,
         input_path: str,
@@ -57,18 +80,15 @@ class VideoProcessor:
         badge_preset: Optional[str] = None,
         logo_rel_pos: Optional[Tuple[float, float]] = None,
         blur_rel_pos: Optional[Tuple[float, float, float, float]] = None,
-        quality_label: Optional[str] = None
+        blur_boxes: Optional[List[Tuple[float, float, float, float]]] = None,
+        quality_label: Optional[str] = None,
+        frame_png_path: Optional[str] = None,
+        frame_config: Optional[Dict[str, Any]] = None,
+        frame_adjustments: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
-        Applies watermark mask (blur box), custom logo, text watermark, and visual sticker badge onto input video.
-        Supports exact mouse-dragged relative coordinates.
-
-        QUALITY IMPROVEMENTS:
-        - Default preset changed from 'ultrafast' to 'slow' for better quality
-        - Default CRF changed from 22 to 18 for Instagram/TikTok quality standards
-        - Audio bitrate increased from 128k to 192k
-        - Added -movflags +faststart for mobile-optimized MP4 streaming
-        - Added scale filter to ensure width/height are multiples of 2 (prevents encoding errors)
+        Applies watermark mask (Gaussian blur box), custom logo, text watermark, and visual sticker badge onto input video.
+        Supports exact mouse-dragged relative coordinates for up to 5 blur boxes.
         """
         if not os.path.exists(input_path):
             raise FileNotFoundError(f"Input video not found: {input_path}")
@@ -84,20 +104,117 @@ class VideoProcessor:
         input_count = 1
         temp_files_to_cleanup = []
 
-        # Step 1: Delogo / Blur box
-        if blur_rel_pos:
-            rx, ry, rw, rh = blur_rel_pos
-            bx = max(0, int(vid_w * rx))
-            by = max(0, int(vid_h * ry))
+        # Step 0: Custom Frame PNG Template Overlay
+        if frame_png_path and os.path.exists(frame_png_path) and frame_config:
+            try:
+                va = frame_config.get("videoArea", {})
+                vw_ref = float(frame_config.get("canvasWidth", 1080))
+                vh_ref = float(frame_config.get("canvasHeight", 1920))
+
+                scale_w = vid_w / max(1.0, vw_ref)
+                scale_h = vid_h / max(1.0, vh_ref)
+
+                fbx = int(float(va.get("x", 0)) * scale_w)
+                fby = int(float(va.get("y", 0)) * scale_h)
+                fbw = max(10, int(float(va.get("width", vw_ref)) * scale_w))
+                fbh = max(10, int(float(va.get("height", vh_ref)) * scale_h))
+
+                fbw = fbw if fbw % 2 == 0 else fbw - 1
+                fbh = fbh if fbh % 2 == 0 else fbh - 1
+
+                adj = frame_adjustments or {}
+                zoom = max(0.5, float(adj.get("zoom", 1.0)))
+                off_x = int(float(adj.get("offsetX", 0)) * scale_w)
+                off_y = int(float(adj.get("offsetY", 0)) * scale_h)
+
+                inputs.extend(["-i", frame_png_path])
+                frame_stream_idx = input_count
+                input_count += 1
+
+                v_scaled_w = int(fbw * zoom)
+                v_scaled_h = int(fbh * zoom)
+
+                filter_complex_steps.append(
+                    f"color=c=0x0B0F19@1.0:s={vid_w}x{vid_h}:d=1[frame_bg]"
+                )
+                filter_complex_steps.append(
+                    f"{current_stream}scale={v_scaled_w}:{v_scaled_h}:force_original_aspect_ratio=increase,crop={fbw}:{fbh}:max(0\\,(iw-{fbw})/2+{off_x}):max(0\\,(ih-{fbh})/2+{off_y})[v_fitted]"
+                )
+                filter_complex_steps.append(
+                    f"[frame_bg][v_fitted]overlay={fbx}:{fby}[v_with_video]"
+                )
+                filter_complex_steps.append(
+                    f"[{frame_stream_idx}:v]scale={vid_w}:{vid_h}[frame_png_scaled]"
+                )
+                filter_complex_steps.append(
+                    f"[v_with_video][frame_png_scaled]overlay=0:0[out_framed]"
+                )
+                current_stream = "[out_framed]"
+                print(f"[FFmpeg Frame Studio] Template applied: videoArea=({fbx},{fby},{fbw},{fbh}), zoom={zoom}")
+            except Exception as fe:
+                print(f"[FFmpeg Frame Studio] Error applying frame template: {fe}")
+
+        # Step 1: Heavy Smooth Blur Boxes (support multiple B1-B5 blur_boxes)
+        boxes_to_process = []
+        if blur_boxes and isinstance(blur_boxes, list):
+            boxes_to_process.extend(blur_boxes)
+        elif blur_rel_pos:
+            boxes_to_process.append(blur_rel_pos)
+
+        for b_idx, box_pos in enumerate(boxes_to_process):
+            rx, ry, rw, rh = box_pos
+            top_left_x = rx - (rw / 2.0)
+            top_left_y = ry - (rh / 2.0)
+            bx = max(0, min(int(vid_w * top_left_x), vid_w - 10))
+            by = max(0, min(int(vid_h * top_left_y), vid_h - 10))
             bw = max(10, int(vid_w * rw))
             bh = max(10, int(vid_h * rh))
+            if bx + bw > vid_w:
+                bw = vid_w - bx
+            if by + bh > vid_h:
+                bh = vid_h - by
+            bw = max(10, bw)
+            bh = max(10, bh)
+            bw = bw if bw % 2 == 0 else bw - 1
+            bh = bh if bh % 2 == 0 else bh - 1
+
+            print(f"[FFmpeg Blur #{b_idx+1}] Center: ({rx:.3f}, {ry:.3f}) -> TopLeft: x={bx}, y={by}, w={bw}, h={bh} (video: {vid_w}x{vid_h})")
+
+            m_str = f"blur_m_{b_idx}"
+            s_str = f"blur_s_{b_idx}"
+            r_str = f"blur_r_{b_idx}"
+            o_str = f"blur_o_{b_idx}"
+
             filter_complex_steps.append(
-                f"{current_stream}delogo=x={bx}:y={by}:w={bw}:h={bh}[blurred]"
+                f"{current_stream}split[{m_str}][{s_str}]"
             )
-            current_stream = "[blurred]"
-        elif blur_box:
+            filter_complex_steps.append(
+                f"[{s_str}]crop={bw}:{bh}:{bx}:{by},avgblur=sizeX=35:sizeY=35[{r_str}]"
+            )
+            filter_complex_steps.append(
+                f"[{m_str}][{r_str}]overlay={bx}:{by}[{o_str}]"
+            )
+            current_stream = f"[{o_str}]"
+
+        if not boxes_to_process and blur_box:
             bx, by, bw, bh = blur_box
-            filter_complex_steps.append(f"{current_stream}delogo=x={bx}:y={by}:w={bw}:h={bh}[blurred]")
+            # Clamp coordinates
+            bx = max(0, min(bx, vid_w - 10))
+            by = max(0, min(by, vid_h - 10))
+            bw = max(10, min(bw, vid_w - bx))
+            bh = max(10, min(bh, vid_h - by))
+            bw = bw if bw % 2 == 0 else bw - 1
+            bh = bh if bh % 2 == 0 else bh - 1
+
+            filter_complex_steps.append(
+                f"{current_stream}split[blur_main][blur_src]"
+            )
+            filter_complex_steps.append(
+                f"[blur_src]crop={bw}:{bh}:{bx}:{by},avgblur=sizeX=35:sizeY=35[blurred_region]"
+            )
+            filter_complex_steps.append(
+                f"[blur_main][blurred_region]overlay={bx}:{by}[blurred]"
+            )
             current_stream = "[blurred]"
 
         # Step 2: Overlay Badge Sticker if specified
@@ -202,12 +319,23 @@ class VideoProcessor:
             "-c:a", "aac",
             "-b:a", q_params["audio_br"],       # 192k (default) — high quality audio
             "-ar", "44100",                     # Standard sample rate
-            "-movflags", "+faststart",          # Web/mobile optimized: moov atom at file start
+            "-movflags", "+faststart"           # Web/mobile optimized: moov atom at file start
+        ])
+
+        # Auto-trim to 59s if video duration exceeds 59.5s
+        duration_sec = self.get_video_duration(input_path)
+        if duration_sec > 59.5:
+            print(f"[FFmpeg Auto-Trim] Video süresi ({duration_sec:.1f}s) > 59s. Telif uyarısı ve Shorts sınırı için otomatik 59.saniyeye kesiliyor.")
+            cmd.extend(["-t", "59"])
+
+        cmd.extend([
             "-y",
             output_path
         ])
 
-        print(f"[FFmpeg] Quality: {q_label} | preset={q_params['preset']} | crf={q_params['crf']} | audio={q_params['audio_br']}")
+        safe_q_label = q_label.encode('ascii', 'ignore').decode('ascii').strip() or "Quality"
+        safe_print(f"[FFmpeg] Quality: {safe_q_label} | preset={q_params['preset']} | crf={q_params['crf']} | audio={q_params['audio_br']}")
+        safe_print(f"[FFmpeg] Full command: {' '.join(cmd)}")
 
         try:
             result = subprocess.run(
@@ -215,12 +343,16 @@ class VideoProcessor:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=True,
                 creationflags=0x08000000 if os.name == 'nt' else 0
             )
+            safe_print(f"[FFmpeg] Processing completed successfully.")
             return True
         except subprocess.CalledProcessError as e:
-            print(f"FFmpeg error: {e.stderr}")
+            safe_print(f"[FFmpeg] ERROR (exit code {e.returncode}):")
+            safe_print(f"[FFmpeg] STDERR: {e.stderr[-2000:] if e.stderr else 'No stderr'}")
             return False
         finally:
             for tmp_f in temp_files_to_cleanup:
@@ -229,3 +361,4 @@ class VideoProcessor:
                         os.remove(tmp_f)
                     except Exception:
                         pass
+

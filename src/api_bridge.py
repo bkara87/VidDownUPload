@@ -8,11 +8,12 @@ import webview
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
-from src.config import APP_NAME, APP_VERSION, DOWNLOADS_DIR, PROCESSED_DIR, BASE_DIR, FFMPEG_BINARY
+import hashlib
+from src.config import APP_NAME, APP_VERSION, DOWNLOADS_DIR, PROCESSED_DIR, BASE_DIR, USER_DATA_DIR, THUMB_CACHE_DIR, FFMPEG_BINARY
 from src.downloader.downloader import VideoDownloader
 from src.updater.github_updater import GitHubUpdater
 
-KEYS_FILE = BASE_DIR / "config_keys.json"
+KEYS_FILE = USER_DATA_DIR / "config_keys.json"
 
 
 class ApiBridge:
@@ -27,6 +28,7 @@ class ApiBridge:
         self._window = None
         self._current_download_path: Optional[str] = None
         self._current_studio_path: Optional[str] = None
+        self._thumb_mem_cache: Dict[str, str] = {}
 
     def set_window(self, window):
         self._window = window
@@ -69,27 +71,73 @@ class ApiBridge:
         """Returns list of processed (watermarked) videos."""
         return self._list_videos(PROCESSED_DIR)
 
+    def _get_thumb_cache_key(self, video_path: str, st_mtime: float = 0, st_size: int = 0) -> str:
+        raw_key = f"{video_path}_{st_mtime}_{st_size}"
+        return hashlib.md5(raw_key.encode("utf-8")).hexdigest()
+
     def _list_videos(self, directory: Path) -> List[Dict[str, Any]]:
         result = []
         try:
-            for f in sorted(directory.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
-                if f.suffix.lower() not in ('.mp4', '.mov', '.avi', '.mkv', '.webm'):
+            dirs_to_scan = [directory]
+            # Check fallback directory in project BASE_DIR if different
+            folder_name = directory.name
+            fallback_dir = BASE_DIR / folder_name
+            if fallback_dir.exists() and fallback_dir.resolve() != directory.resolve():
+                dirs_to_scan.append(fallback_dir)
+
+            seen_filenames = set()
+            items = []
+            for target_d in dirs_to_scan:
+                if not target_d.exists():
                     continue
-                meta = self._load_sidecar(str(f))
-                size_mb = round(f.stat().st_size / (1024 * 1024), 1)
+                with os.scandir(str(target_d)) as entries:
+                    for entry in entries:
+                        if entry.is_file(follow_symlinks=False):
+                            ext = os.path.splitext(entry.name)[1].lower()
+                            if ext in ('.mp4', '.mov', '.avi', '.mkv', '.webm'):
+                                if entry.name not in seen_filenames:
+                                    seen_filenames.add(entry.name)
+                                    st = entry.stat(follow_symlinks=False)
+                                    items.append((entry, st))
+            
+            # En son değiştirilenleri en üstte göster
+            items.sort(key=lambda x: x[1].st_mtime, reverse=True)
+
+            for entry, st in items:
+                video_path = entry.path
+                meta = self._load_sidecar(video_path)
+                size_mb = round(st.st_size / (1024 * 1024), 1)
+
+                # Disk önbelleğinde resim var mı kontrol et
+                cache_key = self._get_thumb_cache_key(video_path, st.st_mtime, st.st_size)
+                thumb_base64 = ""
+                if cache_key in self._thumb_mem_cache:
+                    thumb_base64 = self._thumb_mem_cache[cache_key]
+                else:
+                    disk_file = THUMB_CACHE_DIR / f"{cache_key}.jpg"
+                    if disk_file.exists():
+                        try:
+                            with open(disk_file, "rb") as tf:
+                                data = base64.b64encode(tf.read()).decode("utf-8")
+                                thumb_base64 = f"data:image/jpeg;base64,{data}"
+                                self._thumb_mem_cache[cache_key] = thumb_base64
+                        except Exception:
+                            pass
+
                 result.append({
-                    "path": str(f),
-                    "filename": f.name,
-                    "stem": f.stem,
+                    "path": video_path,
+                    "filename": entry.name,
+                    "stem": os.path.splitext(entry.name)[0],
                     "size_mb": size_mb,
-                    "modified": time.strftime("%Y-%m-%d %H:%M", time.localtime(f.stat().st_mtime)),
-                    "title": meta.get("title", f.stem) if meta else f.stem,
+                    "modified": time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime)),
+                    "title": meta.get("title", entry.name) if meta else os.path.splitext(entry.name)[0],
                     "uploader": meta.get("uploader", "") if meta else "",
                     "caption": meta.get("caption", "") if meta else "",
                     "hashtags": meta.get("hashtags", []) if meta else [],
                     "hashtags_str": meta.get("hashtags_str", "") if meta else "",
                     "url": meta.get("url", "") if meta else "",
-                    "has_meta": meta is not None
+                    "has_meta": meta is not None,
+                    "thumbnail": thumb_base64
                 })
         except Exception as e:
             print(f"Error listing videos: {e}")
@@ -128,15 +176,31 @@ class ApiBridge:
     def get_video_thumbnail(self, video_path: str) -> str:
         """
         Extract a thumbnail from the video using ffmpeg and return as base64 data URL.
-        Returns empty string if extraction fails.
+        Uses high-speed memory and disk caching.
         """
         if not video_path or not os.path.exists(video_path):
             return ""
         try:
-            import tempfile
-            thumb_path = tempfile.mktemp(suffix=".jpg")
+            st = os.stat(video_path)
+            cache_key = self._get_thumb_cache_key(video_path, st.st_mtime, st.st_size)
 
-            # Use ffmpeg to extract frame at 1 second
+            # 1. Hafıza önbelleği
+            if cache_key in self._thumb_mem_cache:
+                return self._thumb_mem_cache[cache_key]
+
+            # 2. Disk önbelleği
+            disk_file = THUMB_CACHE_DIR / f"{cache_key}.jpg"
+            if disk_file.exists():
+                try:
+                    with open(disk_file, "rb") as f:
+                        data = base64.b64encode(f.read()).decode("utf-8")
+                        res = f"data:image/jpeg;base64,{data}"
+                        self._thumb_mem_cache[cache_key] = res
+                        return res
+                except Exception:
+                    pass
+
+            # 3. FFmpeg ile hızlı kare çıkarma
             ffmpeg_bin = FFMPEG_BINARY
             cmd = [
                 ffmpeg_bin,
@@ -144,25 +208,23 @@ class ApiBridge:
                 "-i", video_path,
                 "-vframes", "1",
                 "-vf", "scale=240:-2",
-                "-q:v", "3",
+                "-q:v", "4",
                 "-y",
-                thumb_path
+                str(disk_file)
             ]
-            result = subprocess.run(
+            subprocess.run(
                 cmd,
                 capture_output=True,
-                timeout=15,
+                timeout=10,
                 creationflags=0x08000000 if os.name == 'nt' else 0
             )
 
-            if os.path.exists(thumb_path):
-                with open(thumb_path, "rb") as f:
+            if disk_file.exists():
+                with open(disk_file, "rb") as f:
                     data = base64.b64encode(f.read()).decode("utf-8")
-                try:
-                    os.remove(thumb_path)
-                except Exception:
-                    pass
-                return f"data:image/jpeg;base64,{data}"
+                res = f"data:image/jpeg;base64,{data}"
+                self._thumb_mem_cache[cache_key] = res
+                return res
         except Exception as e:
             print(f"Thumbnail extraction error: {e}")
         return ""
@@ -201,8 +263,29 @@ class ApiBridge:
         }
         path = folder_map.get(folder_type, str(DOWNLOADS_DIR))
         try:
+            if not os.path.exists(path):
+                os.makedirs(path, exist_ok=True)
             os.startfile(path)
             return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def open_file_location(self, file_path: str) -> Dict[str, Any]:
+        """Opens Windows Explorer with the specific video file selected."""
+        try:
+            if not file_path:
+                return self.open_folder("downloads")
+            
+            norm_path = os.path.normpath(file_path)
+            if os.path.exists(norm_path):
+                subprocess.run(f'explorer /select,"{norm_path}"', shell=True)
+                return {"success": True}
+            else:
+                folder = os.path.dirname(norm_path)
+                if os.path.exists(folder):
+                    os.startfile(folder)
+                    return {"success": True}
+                return self.open_folder("downloads")
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -321,20 +404,45 @@ class ApiBridge:
             out_path = str(PROCESSED_DIR / out_name)
 
             logo_path = options.get("logo_path") if options.get("logo_enabled") else None
+            if logo_path:
+                if not os.path.exists(logo_path):
+                    clean_name = os.path.basename(logo_path)
+                    candidates = [
+                        BASE_DIR / logo_path,
+                        USER_DATA_DIR / logo_path,
+                        BASE_DIR / "assets" / clean_name,
+                        USER_DATA_DIR / "assets" / clean_name,
+                        BASE_DIR / "web" / "assets" / clean_name,
+                    ]
+                    found = False
+                    for cand in candidates:
+                        if cand.exists():
+                            logo_path = str(cand)
+                            found = True
+                            break
+                    if not found:
+                        print(f"DEBUG [_process_task]: Logo file not found: {options.get('logo_path')}")
+                        logo_path = None
+
             text_wm = options.get("text_watermark") or None
             badge_preset = options.get("badge_preset") or None
             logo_scale = float(options.get("logo_scale", 0.22))
             quality_label = options.get("quality_label") or None
 
-            # Blur position (relative coords)
-            blur_rel_pos = None
-            if options.get("blur_enabled"):
-                blur_rel_pos = (
+            # Multi-Blur positions (relative coords B1-B5)
+            blur_boxes = None
+            if options.get("blur_boxes") and isinstance(options.get("blur_boxes"), list):
+                blur_boxes = []
+                for b in options.get("blur_boxes"):
+                    if isinstance(b, (list, tuple)) and len(b) == 4:
+                        blur_boxes.append((float(b[0]), float(b[1]), float(b[2]), float(b[3])))
+            elif options.get("blur_enabled"):
+                blur_boxes = [(
                     float(options.get("blur_x", 0.65)),
                     float(options.get("blur_y", 0.88)),
                     float(options.get("blur_w", 0.35)),
                     float(options.get("blur_h", 0.12))
-                )
+                )]
 
             # Logo position (relative coords)
             logo_rel_pos = None
@@ -344,6 +452,11 @@ class ApiBridge:
                     float(options.get("logo_y", 0.88))
                 )
 
+            # Frame template options
+            frame_png_path = options.get("frame_png_path") if options.get("frame_enabled") else None
+            frame_config = options.get("frame_config") if options.get("frame_enabled") else None
+            frame_adjustments = options.get("frame_adjustments") if options.get("frame_enabled") else None
+
             success = processor.process_video(
                 input_path=source_path,
                 output_path=out_path,
@@ -352,8 +465,11 @@ class ApiBridge:
                 text_watermark=text_wm,
                 badge_preset=badge_preset,
                 logo_rel_pos=logo_rel_pos,
-                blur_rel_pos=blur_rel_pos,
-                quality_label=quality_label
+                blur_boxes=blur_boxes,
+                quality_label=quality_label,
+                frame_png_path=frame_png_path,
+                frame_config=frame_config,
+                frame_adjustments=frame_adjustments
             )
 
             if success:
@@ -428,63 +544,353 @@ class ApiBridge:
         except Exception:
             pass
 
+    def get_video_metadata(self, video_path: str) -> Dict[str, Any]:
+        """Loads and returns cleaned metadata for video (title, description, tags, channel name)."""
+        try:
+            from src.processor.metadata_cleaner import MetadataCleaner
+            return MetadataCleaner.get_metadata_for_video(video_path)
+        except Exception as e:
+            return {"error": str(e)}
+
+    # ──────────────────────────────────────────────────────────────
+    # FRAME TEMPLATE STUDIO
+    # ──────────────────────────────────────────────────────────────
+
+    def get_frame_templates(self) -> List[Dict[str, Any]]:
+        """Returns list of imported PNG frame templates with base64 previews."""
+        try:
+            from src.processor.frame_manager import FrameManager
+            return FrameManager.list_templates()
+        except Exception as e:
+            print(f"DEBUG [get_frame_templates]: Error: {e}")
+            return []
+
+    def import_frame_template(self, name: str, category: str, png_base64: str, config_json_str: str) -> Dict[str, Any]:
+        """Imports a new PNG frame template."""
+        try:
+            from src.processor.frame_manager import FrameManager
+            import json as _json
+
+            if "," in png_base64:
+                png_base64 = png_base64.split(",", 1)[1]
+
+            png_bytes = base64.b64decode(png_base64)
+            config_data = _json.loads(config_config_json_str if 'config_config_json_str' in locals() else config_json_str)
+
+            res = FrameManager.save_template(name=name, category=category, png_bytes=png_bytes, config_data=config_data)
+            if res.get("success"):
+                self.log(f"✅ Çerçeve şablonu kaydedildi: '{res['name']}'", "success")
+            return res
+        except Exception as e:
+            self.log(f"❌ Çerçeve kaydetme hatası: {e}", "error")
+            return {"success": False, "error": str(e)}
+
+    def delete_frame_template(self, name: str) -> Dict[str, Any]:
+        """Deletes a frame template."""
+        try:
+            from src.processor.frame_manager import FrameManager
+            res = FrameManager.delete_template(name)
+            if res.get("success"):
+                self.log(f"🗑️ Çerçeve şablonu silindi: '{name}'", "info")
+            return res
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     # ──────────────────────────────────────────────────────────────
     # API KEYS MANAGEMENT
     # ──────────────────────────────────────────────────────────────
 
     def get_api_keys(self) -> Dict[str, Any]:
-        """Load and return all saved API keys."""
-        if KEYS_FILE.exists():
-            try:
-                with open(KEYS_FILE, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    safe = dict(data)
-                    # Mask password
-                    if "instagram_auth" in safe and isinstance(safe["instagram_auth"], dict):
-                        auth = dict(safe["instagram_auth"])
-                        if auth.get("password"):
-                            auth["password"] = "●" * min(len(auth["password"]), 8)
-                        safe["instagram_auth"] = auth
-                    return safe
-            except Exception as e:
-                return {"error": str(e)}
+        """Load and return all saved API keys from USER_DATA_DIR and BASE_DIR."""
+        target_files = [USER_DATA_DIR / "config_keys.json", BASE_DIR / "config_keys.json"]
+        data = {}
+        for kf in target_files:
+            if kf.exists():
+                try:
+                    with open(kf, "r", encoding="utf-8") as f:
+                        file_data = json.load(f)
+                        if file_data and isinstance(file_data, dict):
+                            for key, val in file_data.items():
+                                if val or key not in data:
+                                    data[key] = val
+                except Exception as e:
+                    print(f"DEBUG [get_api_keys]: Error reading {kf}: {e}")
+
+        if data:
+            safe = dict(data)
+            # Mask password
+            if "instagram_auth" in safe and isinstance(safe["instagram_auth"], dict):
+                auth = dict(safe["instagram_auth"])
+                if auth.get("password"):
+                    auth["password"] = "●" * min(len(auth["password"]), 8)
+                safe["instagram_auth"] = auth
+            return safe
         return {}
 
     def save_api_keys(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Save API keys to config_keys.json. Preserves existing values if masked."""
+        """Save API keys to config_keys.json in both USER_DATA_DIR and BASE_DIR. Preserves existing values if masked."""
         try:
-            existing = {}
-            if KEYS_FILE.exists():
-                try:
-                    with open(KEYS_FILE, "r", encoding="utf-8") as f:
-                        existing = json.load(f)
-                except Exception:
-                    pass
+            existing = self.get_api_keys()
 
             def is_masked(val: str) -> bool:
                 return bool(val and ('*' in val or '●' in val))
 
             # Preserve existing password if masked
-            if "instagram_auth" in data:
+            if "instagram_auth" in data and isinstance(data["instagram_auth"], dict):
                 new_pass = data["instagram_auth"].get("password", "")
                 if is_masked(new_pass):
                     existing_auth = existing.get("instagram_auth", {})
                     data["instagram_auth"]["password"] = existing_auth.get("password", "")
 
             # Preserve access token / secrets if masked
-            for k in ["instagram_access_token", "youtube_client_secret", "tiktok_access_token"]:
+            for k in ["instagram_access_token", "youtube_client_secret", "tiktok_access_token", "tiktok_client_secret"]:
                 if k in data and is_masked(data[k]):
                     data[k] = existing.get(k, "")
 
             existing.update(data)
 
-            with open(KEYS_FILE, "w", encoding="utf-8") as f:
+            # Save to persistent AppData (USER_DATA_DIR)
+            user_keys_file = USER_DATA_DIR / "config_keys.json"
+            user_keys_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(user_keys_file, "w", encoding="utf-8") as f:
                 json.dump(existing, f, ensure_ascii=False, indent=2)
+
+            # Sync to BASE_DIR if writable and different
+            try:
+                base_keys_file = BASE_DIR / "config_keys.json"
+                if base_keys_file != user_keys_file:
+                    with open(base_keys_file, "w", encoding="utf-8") as f:
+                        json.dump(existing, f, ensure_ascii=False, indent=2)
+            except Exception as sync_err:
+                print(f"DEBUG [save_api_keys]: Sync to BASE_DIR note: {sync_err}")
 
             self.log("✅ API anahtarları başarıyla kaydedildi.", "success")
             return {"success": True}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+
+    def start_tiktok_auth_wizard(self, client_key: str = "", client_secret: str = "", scope: str = "", mode: str = "browser") -> Dict[str, Any]:
+        """
+        TikTok OAuth 2.0 PKCE Login Wizard.
+        Supports both In-App Popup Window and System Browser (Chrome/Edge) for Google OAuth compatibility.
+        """
+        import traceback as _tb
+
+        def _show_auth_status(visible: bool, msg: str = ""):
+            """Show/hide the auth waiting status indicator in UI."""
+            if self._window:
+                try:
+                    display = "'block'" if visible else "'none'"
+                    js = f"(function(){{var el=document.getElementById('ttAuthStatus');if(el)el.style.display={display};"
+                    js += f"var btn=document.getElementById('btnTtAuth');if(btn)btn.disabled={'true' if visible else 'false'};"
+                    js += f"var btnBr=document.getElementById('btnTtAuthBrowser');if(btnBr)btnBr.disabled={'true' if visible else 'false'};"
+                    if msg:
+                        safe_msg = json.dumps(msg)
+                        js += f"var spans=el?el.querySelectorAll('span'):[];if(spans.length>1)spans[1].textContent={safe_msg};"
+                    js += "})();"
+                    self._window.evaluate_js(js)
+                except Exception:
+                    pass
+
+        def _wizard_worker():
+            try:
+                from src.uploader.tiktokapi import (
+                    TikTokOAuthPKCE, OAuthCallbackHandler,
+                    ReuseThreadingHTTPServer, _decrypt_secret,
+                    _encrypt_secret, _open_url_in_browser, KEYS_FILE as _KEYS_FILE
+                )
+                import secrets as _sec
+                import time as _time
+                import json as _json
+
+                keys = self.get_api_keys()
+
+                ck = client_key.strip()
+                if not ck or "*" in ck or "\u25cf" in ck:
+                    ck = keys.get("tiktok_client_key", "").strip()
+
+                raw_cs = client_secret.strip()
+                if not raw_cs or "*" in raw_cs or "\u25cf" in raw_cs:
+                    raw_cs = keys.get("tiktok_client_secret", "").strip()
+
+                cs = _decrypt_secret(raw_cs)
+
+                if not ck or not cs:
+                    self.log("\u274c Lütfen önce TikTok Client Key ve Client Secret girin.", "error")
+                    _show_auth_status(False)
+                    return
+
+                req_scope = scope.strip() if scope else keys.get("tiktok_scope", "user.info.basic,video.publish").strip()
+
+                # PKCE pair ve state
+                verifier, challenge = TikTokOAuthPKCE.generate_pkce_pair()
+                state = _sec.token_hex(16)
+
+                # Callback handler sıfırla
+                OAuthCallbackHandler.auth_code = None
+                OAuthCallbackHandler.state = None
+                OAuthCallbackHandler.error = None
+
+                # Yerel callback dinleyici
+                server = None
+                chosen_port = None
+                for try_port in [8989, 8990, 8991, 8992]:
+                    try:
+                        server = ReuseThreadingHTTPServer(("127.0.0.1", try_port), OAuthCallbackHandler)
+                        server.timeout = 1.0
+                        chosen_port = try_port
+                        print(f"DEBUG [tt_wizard]: Callback server started on port {try_port}")
+                        break
+                    except Exception as pe:
+                        print(f"DEBUG [tt_wizard]: Port {try_port} busy: {pe}")
+
+                if not server:
+                    self.log("\u274c Yerel callback dinleyici başlatılamıyor (portlar meşgul). Lütfen 8989-8992 portlarını kontrol edin.", "error")
+                    _show_auth_status(False)
+                    return
+
+                TikTokOAuthPKCE.PORT = chosen_port
+                TikTokOAuthPKCE.REDIRECT_URI = f"http://127.0.0.1:{chosen_port}/callback/"
+
+                auth_url = TikTokOAuthPKCE.get_auth_url(ck, challenge, state, scope=req_scope)
+                print(f"DEBUG [tt_wizard]: auth_url = {auth_url}, mode = {mode}")
+
+                popup = None
+                if mode == "browser":
+                    _open_url_in_browser(auth_url)
+                    self.log("⚡ Sistem tarayıcınızda TikTok giriş sayfası açıldı (Google hesabınızla giriş yapabilirsiniz)...", "info")
+                    _show_auth_status(True, "Sistem tarayıcısında giriş bekleniyor...")
+                else:
+                    try:
+                        from src.utils.webview_stealth import apply_webview_stealth_patch
+                        apply_webview_stealth_patch()
+                        popup = webview.create_window(
+                            title="TikTok Giriş Yap - VidDownUPload",
+                            url=auth_url,
+                            width=580,
+                            height=740,
+                            resizable=True,
+                            min_size=(450, 600),
+                            background_color='#0B0F19'
+                        )
+                        print(f"DEBUG [tt_wizard]: Uygulama içi popup penceresi açıldı: {popup}")
+                        self.log("\u26a1 Uygulama içi giriş penceresi açıldı. Lütfen pencereden girişinizi yapın...", "info")
+                        _show_auth_status(True, "Giriş penceresinde bekleniyor... Giriş sonrası token otomatik çekilecek.")
+                    except Exception as pop_err:
+                        print(f"DEBUG [tt_wizard]: Popup açma hatası, harici tarayıcıya yönlendiriliyor: {pop_err}")
+                        _open_url_in_browser(auth_url)
+                        self.log("\u26a1 Sistem tarayıcınızda TikTok giriş sayfası açıldı. Lütfen giriş yapın...", "info")
+                        _show_auth_status(True, "Tarayıcıda giriş bekleniyor... Giriş yaptıktan sonra token otomatik alınacak.")
+
+                # Callback'i bekle (max 180 saniye)
+                deadline = _time.time() + 180
+                while _time.time() < deadline:
+                    server.handle_request()
+                    if OAuthCallbackHandler.auth_code or OAuthCallbackHandler.error:
+                        print(f"DEBUG [tt_wizard]: Callback received! code={str(OAuthCallbackHandler.auth_code or '')[:20]}...")
+                        break
+
+                server.server_close()
+
+                # Popup pencereyi kapat
+                if popup:
+                    try:
+                        _time.sleep(1.5)  # Kullanıcının başarı ekranını görmesi için kısa bekleme
+                        popup.destroy()
+                        print("DEBUG [tt_wizard]: Popup penceresi kapatıldı.")
+                    except Exception as dest_err:
+                        print(f"DEBUG [tt_wizard]: Popup kapatma uyarısı: {dest_err}")
+
+                # Hata kontrolleri
+                if OAuthCallbackHandler.error:
+                    self.log(f"\u274c Giriş reddedildi: {OAuthCallbackHandler.error}", "error")
+                    _show_auth_status(False)
+                    return
+                if not OAuthCallbackHandler.auth_code:
+                    self.log("\u274c Zaman aşımı: 180 saniyede giriş yapılamadı. Tekrar deneyin.", "error")
+                    _show_auth_status(False)
+                    return
+                if OAuthCallbackHandler.state != state:
+                    self.log("\u274c Güvenlik İhlali (CSRF): State doğrulanamadı!", "error")
+                    _show_auth_status(False)
+                    return
+
+                _show_auth_status(True, "Token alınıyor, lütfen bekleyin...")
+
+                # Token exchange
+                print("DEBUG [tt_wizard]: Calling exchange_code_for_token...")
+                res = TikTokOAuthPKCE.exchange_code_for_token(
+                    client_key=ck,
+                    client_secret=cs,
+                    code=OAuthCallbackHandler.auth_code,
+                    code_verifier=verifier
+                )
+                print(f"DEBUG [tt_wizard]: exchange result = {res}")
+
+                if res.get("success"):
+                    open_id = res.get("open_id", "")
+                    access_token = res.get("access_token", "")
+
+                    # Diske kaydet
+                    try:
+                        existing = {}
+                        if _KEYS_FILE.exists():
+                            with open(_KEYS_FILE, "r", encoding="utf-8") as f:
+                                existing = _json.load(f)
+                        existing["tiktok_access_token"] = access_token
+                        existing["tiktok_open_id"] = open_id
+                        existing["tiktok_client_key"] = ck
+                        existing["tiktok_client_secret"] = _encrypt_secret(cs)
+                        existing["tiktok_expires_at"] = int(_time.time()) + res.get("expires_in", 86400)
+                        if res.get("refresh_token"):
+                            existing["tiktok_refresh_token"] = res["refresh_token"]
+                        if res.get("refresh_expires_at"):
+                            existing["tiktok_refresh_expires_at"] = res["refresh_expires_at"]
+                        with open(_KEYS_FILE, "w", encoding="utf-8") as f:
+                            _json.dump(existing, f, ensure_ascii=False, indent=2)
+                        print(f"DEBUG [tt_wizard]: Saved to disk OK. open_id={open_id}")
+                    except Exception as save_err:
+                        print(f"DEBUG [tt_wizard]: Disk save error: {save_err}\n{_tb.format_exc()}")
+
+                    self.log(f"\u2705 TikTok Girişi Başarılı! Open ID: {open_id}", "success")
+                    _show_auth_status(False)
+
+                    # JS ile UI'yı güncelle
+                    _time.sleep(0.8)
+                    if self._window:
+                        try:
+                            safe_token = _json.dumps(access_token)
+                            safe_openid = _json.dumps(open_id)
+                            safe_ck = _json.dumps(ck)
+                            js = (
+                                f"(function(){{"
+                                f"if(typeof safeSet==='function'){{"
+                                f"safeSet('ttAccessToken',{safe_token});"
+                                f"safeSet('ttOpenId',{safe_openid});"
+                                f"safeSet('ttClientKey',{safe_ck});"
+                                f"}}"
+                                f"if(typeof saveApiKeys==='function'){{saveApiKeys();}}"
+                                f"var dot=document.getElementById('dotTt');if(dot)dot.classList.add('active');"
+                                f"}})();"
+                            )
+                            self._window.evaluate_js(js)
+                            print("DEBUG [tt_wizard]: UI updated via evaluate_js OK.")
+                        except Exception as js_err:
+                            print(f"DEBUG [tt_wizard]: evaluate_js error: {js_err}\n{_tb.format_exc()}")
+                else:
+                    self.log(f"\u274c TikTok Token Alınamadı: {res.get('error')}", "error")
+                    _show_auth_status(False)
+
+            except Exception as e:
+                print(f"DEBUG [tt_wizard] EXCEPTION: {e}\n{_tb.format_exc()}")
+                self.log(f"\u274c TikTok Sihirbaz Hatası: {e}", "error")
+                _show_auth_status(False)
+
+        _show_auth_status(True, "Bağlantı kuruluyor...")
+        t = threading.Thread(target=_wizard_worker, daemon=True)
+        t.start()
+        return {"success": True, "message": "TikTok Giriş Sihirbazı başlatıldı."}
 
     def test_instagram_api(self) -> Dict[str, Any]:
         """Robustly test Instagram / Meta Access Token validity across multiple Graph endpoints."""

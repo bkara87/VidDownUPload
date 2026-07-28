@@ -119,9 +119,14 @@
         <div class="download-grid">
           <div class="section-header">
             <div class="section-title">📁 İndirilen Videolar</div>
-            <button class="btn btn-secondary" onclick="refreshDownloads()" style="height:28px; font-size:11px;">
-              🔄 Yenile
-            </button>
+            <div class="flex gap-8">
+              <button class="btn btn-secondary" onclick="openFolder('downloads')" style="height:28px; font-size:11px;" title="İndirilenler Klasörünü Aç">
+                📂 Klasörü Aç
+              </button>
+              <button class="btn btn-secondary" onclick="refreshDownloads()" style="height:28px; font-size:11px;">
+                🔄 Yenile
+              </button>
+            </div>
           </div>
           <div class="video-grid" id="downloadGrid">
             <div class="empty-state" id="downloadEmpty">
@@ -188,31 +193,87 @@
             </div>
           </div>
 
-          <!-- Blur Mask Card -->
+          <!-- Multi-Blur Mask Card (B1 - B5) -->
           <div class="card">
             <div class="card-header">
-              <div class="card-title">🔲 Eski Filigranı Kapat (Blur)</div>
-              <label class="check-row">
-                <input type="checkbox" id="chkBlur" checked onchange="updatePreview()">
-                <span class="text-sm">Aktif</span>
-              </label>
+              <div class="card-title">🔲 Filigran Kapatma (Çoklu Blur)</div>
             </div>
             <div class="card-body flex flex-col gap-8">
+              <!-- B1-B5 Slot Selector Pills -->
+              <div style="display:flex; gap:4px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:8px;">
+                <button type="button" class="btn btn-secondary btn-blur-slot active" id="btnBlurSlot0" onclick="switchBlurSlot(0)" style="padding:4px 8px; font-size:11px; flex:1; background:rgba(59,130,246,0.2); border-color:var(--accent-blue);">B1</button>
+                <button type="button" class="btn btn-secondary btn-blur-slot" id="btnBlurSlot1" onclick="switchBlurSlot(1)" style="padding:4px 8px; font-size:11px; flex:1;">B2</button>
+                <button type="button" class="btn btn-secondary btn-blur-slot" id="btnBlurSlot2" onclick="switchBlurSlot(2)" style="padding:4px 8px; font-size:11px; flex:1;">B3</button>
+                <button type="button" class="btn btn-secondary btn-blur-slot" id="btnBlurSlot3" onclick="switchBlurSlot(3)" style="padding:4px 8px; font-size:11px; flex:1;">B4</button>
+                <button type="button" class="btn btn-secondary btn-blur-slot" id="btnBlurSlot4" onclick="switchBlurSlot(4)" style="padding:4px 8px; font-size:11px; flex:1;">B5</button>
+              </div>
+
+              <!-- Active Slot Checkbox -->
+              <div style="display:flex; align-items:center; justify-content:space-between; background:rgba(255,255,255,0.03); padding:6px 10px; border-radius:6px;">
+                <span style="font-weight:600; font-size:12px; color:var(--text-main);" id="lblActiveBlurSlotTitle">B1 Blur Kutusu</span>
+                <label class="check-row">
+                  <input type="checkbox" id="chkActiveBlur" checked onchange="toggleActiveBlurSlot(this.checked)">
+                  <span class="text-sm">Aktif Et</span>
+                </label>
+              </div>
+
+              <!-- Controls for selected blur slot -->
               <div>
                 <label class="form-label">Blur Genişliği</label>
                 <div class="slider-row">
-                  <input type="range" id="sliderBlurW" min="10" max="60" value="35" oninput="updatePreview(); document.getElementById('blurWVal').textContent = this.value + '%'">
+                  <input type="range" id="sliderBlurW" min="5" max="100" value="35" oninput="onBlurWidthChange(this.value)">
                   <span class="slider-value" id="blurWVal">35%</span>
                 </div>
               </div>
               <div>
                 <label class="form-label">Blur Yüksekliği</label>
                 <div class="slider-row">
-                  <input type="range" id="sliderBlurH" min="5" max="35" value="12" oninput="updatePreview(); document.getElementById('blurHVal').textContent = this.value + '%'">
+                  <input type="range" id="sliderBlurH" min="5" max="100" value="12" oninput="onBlurHeightChange(this.value)">
                   <span class="slider-value" id="blurHVal">12%</span>
                 </div>
               </div>
-              <div class="text-muted text-sm">📌 Blur konumunu önizlemede sürükleyin</div>
+              <div class="text-muted text-sm">📌 Seçili blur kutusunu önizlemede sürükleyin</div>
+            </div>
+          </div>
+
+          <!-- Frame Studio Template Card -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">🖼️ Özel Çerçeve Şablonu</div>
+              <label class="check-row">
+                <input type="checkbox" id="chkFrame" onchange="updatePreview()">
+                <span class="text-sm">Aktif</span>
+              </label>
+            </div>
+            <div class="card-body flex flex-col gap-8">
+              <button type="button" class="btn btn-secondary btn-full" onclick="openFrameStudioModal()">🎨 Çerçeve Kütüphanesi & Yeni Yükle</button>
+              <div class="text-sm" id="lblSelectedFrame" style="color:var(--accent-blue); font-weight:600;">Seçili: Varsayılan (Çerçevesiz)</div>
+
+              <!-- Fine-tuning video inside frame controls -->
+              <div id="frameControlsWrap" style="display:none;" class="flex flex-col gap-8">
+                <div>
+                  <label class="form-label">Video Yakınlaştırma (Zoom)</label>
+                  <div class="slider-row">
+                    <input type="range" id="sliderFrameZoom" min="50" max="200" value="100" oninput="updatePreview(); document.getElementById('frameZoomVal').textContent = this.value + '%'">
+                    <span class="slider-value" id="frameZoomVal">100%</span>
+                  </div>
+                </div>
+                <div>
+                  <label class="form-label">Yatay Kaydırma (X Konum)</label>
+                  <div class="slider-row">
+                    <input type="range" id="sliderFrameOffX" min="-300" max="300" value="0" oninput="updatePreview(); document.getElementById('frameOffXVal').textContent = this.value + 'px'">
+                    <span class="slider-value" id="frameOffXVal">0px</span>
+                  </div>
+                </div>
+                <div>
+                  <label class="form-label">Dikey Kaydırma (Y Konum)</label>
+                  <div class="slider-row">
+                    <input type="range" id="sliderFrameOffY" min="-300" max="300" value="0" oninput="updatePreview(); document.getElementById('frameOffYVal').textContent = this.value + 'px'">
+                    <span class="slider-value" id="frameOffYVal">0px</span>
+                  </div>
+                </div>
+                <button type="button" class="btn btn-secondary" onclick="resetFrameVideoAdjustments()" style="padding:4px 8px; font-size:11px;">🔄 Konumu Sıfırla</button>
+              </div>
             </div>
           </div>
 
@@ -248,7 +309,7 @@
                 <video class="preview-video" id="previewVideo" loop muted playsinline>
                   <source src="" type="video/mp4">
                 </video>
-                <canvas class="preview-canvas" id="previewCanvas" width="240" height="426"></canvas>
+                <canvas class="preview-canvas" id="previewCanvas" width="540" height="960"></canvas>
                 <!-- Draggable overlays (logo, blur) rendered via JS -->
               </div>
             </div>
@@ -258,10 +319,13 @@
           <div class="min-h-0 flex flex-col">
             <div class="section-header">
               <div class="section-title">📂 Video Seç</div>
-              <button class="btn btn-secondary" onclick="refreshStudioGrid()" style="height:28px; font-size:11px;">🔄</button>
+              <div class="flex gap-8">
+                <button class="btn btn-secondary" onclick="openFolder('downloads')" style="height:28px; font-size:11px;" title="Klasörü Aç">📂 Klasörü Aç</button>
+                <button class="btn btn-secondary" onclick="refreshStudioGrid()" style="height:28px; font-size:11px;">🔄</button>
+              </div>
             </div>
             <div class="video-grid overflow-auto flex-1" id="studioGrid">
-              <div class="empty-state">
+              <div class="empty-state" id="studioEmpty">
                 <div class="empty-state-icon">🎬</div>
                 <div class="empty-state-text">İndirici sekmesinden video indirin.</div>
               </div>
@@ -338,7 +402,10 @@
             <div class="section-title" style="font-size:16px;">🔑 API Yönetimi &amp; Hesap Bilgileri</div>
             <div class="text-muted mt-4">Instagram, YouTube, TikTok, Threads ve Facebook API anahtarlarını kaydedin.</div>
           </div>
-          <button class="btn btn-primary" id="btnSaveApi" onclick="saveApiKeys()">💾 Tümünü Kaydet</button>
+          <div class="flex gap-8">
+            <button type="button" class="btn btn-secondary" id="btnRefreshApi" onclick="refreshApiKeysUI()">🔄 Yenile</button>
+            <button class="btn btn-primary" id="btnSaveApi" onclick="saveApiKeys()">💾 Tümünü Kaydet</button>
+          </div>
         </div>
 
         <!-- Instagram -->
@@ -412,6 +479,10 @@
               <label class="form-label">YouTube API Key (Data API v3) — İsteğe bağlı</label>
               <input type="text" id="ytApiKey" placeholder="AIzaSy...">
             </div>
+            <div>
+              <label class="form-label">YouTube Varsayılan Video Başlığı (Otomatik Eklenecek Başlık)</label>
+              <input type="text" id="ytDefaultTitle" placeholder="Örn: 🎬 Komik Anlar | #Shorts #Mizah">
+            </div>
           </div>
         </div>
 
@@ -426,12 +497,43 @@
           </div>
           <div class="api-section-body collapsed" id="bodyTt">
             <div>
-              <label class="form-label">TikTok Open ID</label>
+              <label class="form-label">TikTok App Client Key</label>
+              <input type="text" id="ttClientKey" placeholder="TikTok App Client Key (aw...)">
+            </div>
+            <div>
+              <label class="form-label">TikTok App Client Secret</label>
+              <div class="flex gap-4">
+                <input type="password" id="ttClientSecret" placeholder="TikTok App Client Secret" style="flex:1;">
+                <button type="button" class="btn btn-secondary" onclick="togglePasswordVisibility('ttClientSecret')" style="padding:4px 12px;">👁️</button>
+              </div>
+            </div>
+            <div>
+              <label class="form-label" style="font-size:11px; opacity:0.7;">TikTok Scope (Yetki İzinleri)</label>
+              <input type="text" id="ttScope" value="user.info.basic,video.publish" placeholder="user.info.basic,video.publish" style="font-size:12px;">
+              <div class="flex gap-4 mt-4">
+                <button type="button" class="btn btn-secondary flex-1 text-xs" style="font-size:10px; padding:4px 6px;" onclick="document.getElementById('ttScope').value='user.info.basic,video.publish'">Standard (video.publish)</button>
+                <button type="button" class="btn btn-secondary flex-1 text-xs" style="font-size:10px; padding:4px 6px;" onclick="document.getElementById('ttScope').value='user.info.basic'">Basic (user.info.basic)</button>
+              </div>
+            </div>
+            <div class="mt-8 mb-8 flex flex-col gap-4">
+              <button type="button" class="btn btn-secondary btn-full" id="btnTtAuth" onclick="startTikTokAuthWizard('browser')" style="background:rgba(59,130,246,0.15); border-color:rgba(59,130,246,0.4); color:#93C5FD;">🔐 TikTok ile Giriş Yap (Google / TikTok Hesabı)</button>
+              <div style="font-size:11px; color:#64748B; text-align:center; margin-top:-4px;">🔒 Güvenli giriş — Sistem tarayıcınız açılır, Google & TikTok girişi desteklenir. Token otomatik alınır.</div>
+              <div id="ttAuthStatus" style="display:none; text-align:center; margin-top:8px; padding:10px; border-radius:8px; background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.3);">
+                <span style="display:inline-block; width:14px; height:14px; border:2px solid rgba(59,130,246,0.3); border-top-color:#3B82F6; border-radius:50%; animation:spin 0.8s linear infinite; vertical-align:middle; margin-right:8px;"></span>
+                <span style="color:#93C5FD; font-size:13px;">Tarayıcıda giriş bekleniyor... Giriş sonrası token otomatik alınacak.</span>
+              </div>
+            </div>
+            <div class="divider"></div>
+            <div>
+              <label class="form-label">TikTok Open ID (Otomatik Dolar / Manuel)</label>
               <input type="text" id="ttOpenId" placeholder="TikTok Open ID">
             </div>
             <div>
-              <label class="form-label">TikTok Access Token</label>
-              <input type="text" id="ttAccessToken" placeholder="Content Posting API Token">
+              <label class="form-label">TikTok Access Token (Content Posting API Token)</label>
+              <div class="flex gap-4">
+                <input type="password" id="ttAccessToken" placeholder="Content Posting API Token" style="flex:1;">
+                <button type="button" class="btn btn-secondary" onclick="togglePasswordVisibility('ttAccessToken')" style="padding:4px 12px;">👁️</button>
+              </div>
             </div>
           </div>
         </div>
@@ -574,6 +676,67 @@
       <button class="btn btn-secondary" onclick="closeModal('uploadModal')">İptal</button>
       <button class="btn btn-primary" id="btnConfirmUpload" onclick="confirmUpload()">🚀 Yükle</button>
     </div>
+  </div>
+</div>
+
+<!-- Frame Studio Modal -->
+<div class="modal-backdrop" id="modalFrameStudio">
+  <div class="modal-card" style="max-width:850px; width:95%; max-height:90vh; display:flex; flex-direction:column; padding:20px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+      <div class="modal-title" style="font-size:18px;">🎨 Frame Studio — Çerçeve Şablon Yöneticisi</div>
+      <button class="btn btn-secondary" onclick="closeModal('modalFrameStudio')" style="padding:4px 10px;">✕ Kapat</button>
+    </div>
+
+    <!-- Modal Navigation Tabs -->
+    <div style="display:flex; gap:10px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px; margin-bottom:16px;">
+      <button class="btn btn-secondary" id="tabFrameLibBtn" onclick="switchFrameTab('library')" style="background:rgba(59,130,246,0.2); border-color:var(--accent-blue);">🖼️ Çerçeve Kütüphanesi</button>
+      <button class="btn btn-secondary" id="tabFrameWizardBtn" onclick="switchFrameTab('wizard')">✨ Yeni PNG Çerçeve Yükle (Sihirbaz)</button>
+    </div>
+
+    <!-- Tab 1: Frame Library -->
+    <div id="frameTabLibrary" style="display:block; flex:1; overflow-y:auto;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <input type="text" id="txtFrameSearch" placeholder="🔍 Şablon ara..." oninput="renderFrameLibrary()" style="max-width:250px; font-size:12px;">
+        <span class="text-muted text-sm" id="lblFrameCount">0 Şablon</span>
+      </div>
+      <div id="frameLibraryGrid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:14px; max-height:450px; overflow-y:auto; padding:4px;">
+        <!-- Grid items rendered via JS -->
+      </div>
+    </div>
+
+    <!-- Tab 2: Frame Wizard -->
+    <div id="frameTabWizard" style="display:none; flex:1; overflow-y:auto;">
+      <div style="display:flex; gap:20px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:280px;" class="flex flex-col gap-12">
+          <div>
+            <label class="form-label">1. PNG Çerçeve Dosyası Seç</label>
+            <input type="file" id="fileFramePng" accept="image/png,image/webp" onchange="onFramePngSelected(event)" style="font-size:12px;">
+          </div>
+          <div>
+            <label class="form-label">Şablon Adı</label>
+            <input type="text" id="txtFrameName" placeholder="ör: Komedi Mavi Çerçeve">
+          </div>
+          <div>
+            <label class="form-label">Kategori</label>
+            <input type="text" id="txtFrameCategory" placeholder="ör: Komedi, Spor, Oyun" value="Genel">
+          </div>
+          <div class="text-muted text-sm" style="background:rgba(255,255,255,0.03); padding:10px; border-radius:6px; font-size:11px; line-height:1.5;">
+            📌 <strong>Nasıl Kullanılır?</strong><br>
+            Sağdaki önizleme ekranında **kırmızı dikdörtgeni** sürükleyip boyutlandırarak videonun görüneceği pencere alanını (`videoArea`) belirleyin. Çerçeveniz üstte kalacaktır.
+          </div>
+          <button type="button" class="btn btn-success btn-lg" onclick="saveFrameTemplateFromWizard()">💾 Şablonu Kaydet & Kütüphaneye Ekle</button>
+        </div>
+
+        <!-- Wizard Canvas for Video Area Drawing -->
+        <div style="width:270px; height:480px; position:relative; background:#0B0F19; border:1px dashed rgba(255,255,255,0.2); border-radius:8px; overflow:hidden; display:flex; align-items:center; justify-content:center;">
+          <canvas id="wizardCanvas" width="270" height="480" style="width:100%; height:100%; cursor:crosshair;"></canvas>
+          <div id="wizardPlaceholder" class="text-muted text-sm" style="position:absolute; text-align:center; padding:12px;">
+            🖼️ PNG Çerçeve seçin
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 

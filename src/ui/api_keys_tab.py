@@ -44,8 +44,13 @@ class ApiKeysTab(ctk.CTkFrame):
             "youtube_client_secret": "",
             "youtube_refresh_token": "",
             "youtube_api_key": "",
+            "tiktok_client_key": "",
+            "tiktok_client_secret": "",
             "tiktok_open_id": "",
             "tiktok_access_token": "",
+            "tiktok_refresh_token": "",
+            "tiktok_expires_at": 0,
+            "tiktok_refresh_expires_at": 0,
             "facebook_page_id": "",
             "threads_user_id": ""
         }
@@ -57,6 +62,30 @@ class ApiKeysTab(ctk.CTkFrame):
         use_hesapsiz = self.chk_hesapsiz_ig.get()
 
         self.auth_manager.save_auth_info(username=ig_user, password=ig_pass, sessionid=ig_sess, use_hesapsiz=use_hesapsiz)
+
+        # Mevcut dosyadaki OAuth token alanlarını koru (OAuth wizard tarafından yazılmış olabilir)
+        existing = {}
+        if KEYS_FILE.exists():
+            try:
+                with open(KEYS_FILE, "r", encoding="utf-8") as f:
+                    existing = json.load(f)
+            except Exception:
+                pass
+
+        # client_secret yönetimi:
+        # - "__STORED__" -> kullanıcı değiştirmedi, disk'teki şifreli değeri koru
+        # - boş -> disk'teki değeri koru
+        # - yeni değer -> şifrele ve kaydet
+        tt_client_key_ui = self.entry_tt_client_key.get().strip()
+        tt_client_secret_ui = self.entry_tt_client_secret.get().strip()
+        existing_secret = existing.get("tiktok_client_secret", "")
+        if tt_client_secret_ui and tt_client_secret_ui != "__STORED__":
+            # Kullanıcı yeni bir secret girdi — şifrele
+            from src.uploader.tiktokapi import _encrypt_secret
+            saved_secret = _encrypt_secret(tt_client_secret_ui)
+        else:
+            # Değiştirilmedi veya boş — mevcut şifreli değeri koru
+            saved_secret = existing_secret
 
         data = {
             "instagram_auth": {
@@ -71,8 +100,14 @@ class ApiKeysTab(ctk.CTkFrame):
             "youtube_client_secret": self.entry_yt_secret.get().strip(),
             "youtube_refresh_token": self.entry_yt_refresh.get().strip(),
             "youtube_api_key": self.entry_yt_key.get().strip(),
+            # TikTok OAuth alanları — wizard tarafından yazılanları koru
+            "tiktok_client_key": tt_client_key_ui if tt_client_key_ui else existing.get("tiktok_client_key", ""),
+            "tiktok_client_secret": saved_secret,
             "tiktok_open_id": self.entry_tt_id.get().strip(),
             "tiktok_access_token": self.entry_tt_token.get().strip(),
+            "tiktok_refresh_token": existing.get("tiktok_refresh_token", ""),
+            "tiktok_expires_at": existing.get("tiktok_expires_at", 0),
+            "tiktok_refresh_expires_at": existing.get("tiktok_refresh_expires_at", 0),
             "facebook_page_id": self.entry_fb_page_id.get().strip(),
             "threads_user_id": self.entry_threads_uid.get().strip()
         }
@@ -290,19 +325,75 @@ class ApiKeysTab(ctk.CTkFrame):
         self.badge_tt = ctk.CTkLabel(tt_head, text="⚪ Yapılandırılmadı", font=ctk.CTkFont(size=11, weight="bold"), text_color="#94A3B8", fg_color="#1E293B", corner_radius=6, padx=8, pady=2)
         self.badge_tt.pack(side="right")
 
+        # OAuth Adım 1: Client Key
+        f_tt_ckey = ctk.CTkFrame(card_tt, fg_color="transparent")
+        f_tt_ckey.pack(fill="x", padx=16, pady=4)
+        ctk.CTkLabel(f_tt_ckey, text="Client Key:", width=160, anchor="w", text_color=COLOR_TEXT_MUTED).pack(side="left")
+        self.entry_tt_client_key = ctk.CTkEntry(f_tt_ckey, placeholder_text="aw1234abcd5678efgh...", height=36, corner_radius=8, fg_color=COLOR_INPUT_BG)
+        self.entry_tt_client_key.insert(0, self.keys_data.get("tiktok_client_key", ""))
+        self.entry_tt_client_key.pack(side="left", fill="x", expand=True)
+
+        # OAuth Adım 2: Client Secret
+        f_tt_csecret = ctk.CTkFrame(card_tt, fg_color="transparent")
+        f_tt_csecret.pack(fill="x", padx=16, pady=4)
+        ctk.CTkLabel(f_tt_csecret, text="Client Secret:", width=160, anchor="w", text_color=COLOR_TEXT_MUTED).pack(side="left")
+        self.entry_tt_client_secret = ctk.CTkEntry(f_tt_csecret, placeholder_text="••••••••••••", show="*", height=36, corner_radius=8, fg_color=COLOR_INPUT_BG)
+        # Client Secret şifreli saklanır — sadece doluysa placeholder göster
+        if self.keys_data.get("tiktok_client_secret"):
+            self.entry_tt_client_secret.insert(0, "__STORED__")
+            self.entry_tt_client_secret.configure(placeholder_text="(Kaydedilmiş — değiştirmek için yeniden girin)")
+        self.entry_tt_client_secret.pack(side="left", fill="x", expand=True)
+
+        # OAuth Butonu Satırı
+        f_tt_oauth_row = ctk.CTkFrame(card_tt, fg_color="transparent")
+        f_tt_oauth_row.pack(fill="x", padx=16, pady=(6, 4))
+
+        self.btn_tt_oauth = ctk.CTkButton(
+            f_tt_oauth_row,
+            text="🔐 TikTok ile Giriş Yap (OAuth 2.0)",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#0D7377",
+            hover_color="#14BDAC",
+            height=38,
+            corner_radius=10,
+            command=self._start_tiktok_oauth
+        )
+        self.btn_tt_oauth.pack(side="left", fill="x", expand=True)
+
+        self.lbl_tt_oauth_status = ctk.CTkLabel(
+            f_tt_oauth_row,
+            text="",
+            font=ctk.CTkFont(size=11),
+            text_color="#94A3B8",
+            wraplength=300,
+            justify="left"
+        )
+        self.lbl_tt_oauth_status.pack(side="left", padx=(10, 0))
+
+        # Sonuç alanları (OAuth wizard otomatik doldurur)
         f_tt_id = ctk.CTkFrame(card_tt, fg_color="transparent")
         f_tt_id.pack(fill="x", padx=16, pady=4)
         ctk.CTkLabel(f_tt_id, text="TikTok Open ID:", width=160, anchor="w", text_color=COLOR_TEXT_MUTED).pack(side="left")
-        self.entry_tt_id = ctk.CTkEntry(f_tt_id, placeholder_text="act.12345...", height=36, corner_radius=8, fg_color=COLOR_INPUT_BG)
+        self.entry_tt_id = ctk.CTkEntry(f_tt_id, placeholder_text="(OAuth sonrası otomatik dolar)", height=36, corner_radius=8, fg_color=COLOR_INPUT_BG)
         self.entry_tt_id.insert(0, self.keys_data.get("tiktok_open_id", ""))
         self.entry_tt_id.pack(side="left", fill="x", expand=True)
 
         f_tt_tok = ctk.CTkFrame(card_tt, fg_color="transparent")
-        f_tt_tok.pack(fill="x", padx=16, pady=(4, 12))
+        f_tt_tok.pack(fill="x", padx=16, pady=(4, 4))
         ctk.CTkLabel(f_tt_tok, text="Access Token:", width=160, anchor="w", text_color=COLOR_TEXT_MUTED).pack(side="left")
-        self.entry_tt_token = ctk.CTkEntry(f_tt_tok, placeholder_text="act.token...", show="*", height=36, corner_radius=8, fg_color=COLOR_INPUT_BG)
+        self.entry_tt_token = ctk.CTkEntry(f_tt_tok, placeholder_text="(OAuth sonrası otomatik dolar)", show="*", height=36, corner_radius=8, fg_color=COLOR_INPUT_BG)
         self.entry_tt_token.insert(0, self.keys_data.get("tiktok_access_token", ""))
         self.entry_tt_token.pack(side="left", fill="x", expand=True)
+
+        tt_note = ctk.CTkLabel(
+            card_tt,
+            text="ℹ️ TikTok Developer Portal'dan Client Key ve Client Secret alın, ardından butona basın.\n"
+                 "   Tarayıcıda TikTok girişi yaptıktan sonra Open ID ve Token otomatik kaydedilir.",
+            font=ctk.CTkFont(size=10),
+            text_color="#64748B",
+            justify="left"
+        )
+        tt_note.pack(anchor="w", padx=16, pady=(0, 12))
 
         # ─────────────────────────────────────────────
         # 4. FACEBOOK PAGE REELS API CARD
@@ -379,6 +470,7 @@ class ApiKeysTab(ctk.CTkFrame):
         self.entry_yt_secret.configure(show=show_char)
         self.entry_yt_refresh.configure(show=show_char)
         self.entry_yt_key.configure(show=show_char)
+        self.entry_tt_client_secret.configure(show=show_char)
         self.entry_tt_token.configure(show=show_char)
 
     def _update_status_badges(self):
@@ -400,8 +492,10 @@ class ApiKeysTab(ctk.CTkFrame):
         else:
             self.badge_yt.configure(text="⚪ Yapılandırılmadı", fg_color="#1E293B", text_color="#94A3B8")
 
-        if self.keys_data.get("tiktok_access_token"):
-            self.badge_tt.configure(text="🟢 Bağlandı", fg_color="#064E3B", text_color="#34D399")
+        if self.keys_data.get("tiktok_access_token") and self.keys_data.get("tiktok_open_id"):
+            self.badge_tt.configure(text="🟢 OAuth Bağlandı", fg_color="#064E3B", text_color="#34D399")
+        elif self.keys_data.get("tiktok_client_key"):
+            self.badge_tt.configure(text="🟡 Client Key Var — Giriş Gerekiyor", fg_color="#422006", text_color="#FCD34D")
         else:
             self.badge_tt.configure(text="⚪ Yapılandırılmadı", fg_color="#1E293B", text_color="#94A3B8")
 
@@ -416,6 +510,115 @@ class ApiKeysTab(ctk.CTkFrame):
                 self.badge_th.configure(text="🟢 Hazır", fg_color="#064E3B", text_color="#34D399")
             else:
                 self.badge_th.configure(text="⚪ Yapılandırılmadı", fg_color="#1E293B", text_color="#94A3B8")
+
+    def _start_tiktok_oauth(self):
+        """TikTok OAuth 2.0 PKCE akışını arka planda başlatır. Tarayıcı açılır, callback alındığında UI güncellenir."""
+        import threading
+
+        client_key = self.entry_tt_client_key.get().strip()
+        client_secret_raw = self.entry_tt_client_secret.get().strip()
+
+        # Eğer placeholder değer varsa disk'teki şifreli secret'ı kullan
+        if client_secret_raw == "__STORED__":
+            client_secret_raw = self.keys_data.get("tiktok_client_secret", "")
+
+        if not client_key:
+            messagebox.showwarning(
+                "Eksik Bilgi",
+                "Lütfen önce TikTok Client Key alanını doldurun!\n\n"
+                "TikTok Developer Portal → Uygulamanız → Client Key"
+            )
+            return
+
+        if not client_secret_raw:
+            messagebox.showwarning(
+                "Eksik Bilgi",
+                "Lütfen TikTok Client Secret alanını doldurun!\n\n"
+                "TikTok Developer Portal → Uygulamanız → Client Secret"
+            )
+            return
+
+        # UI'yi devre dışı bırak
+        self.btn_tt_oauth.configure(state="disabled", text="⏳ Tarayıcı açılıyor...")
+        self.lbl_tt_oauth_status.configure(text="🌐 TikTok giriş sayfası açılıyor...\nGiriş yaptıktan sonra bu pencereye dönün.", text_color="#60A5FA")
+
+        def _run_oauth():
+            try:
+                from src.uploader.tiktokapi import TikTokOAuthPKCE, _encrypt_secret
+                result = TikTokOAuthPKCE.run_auth_wizard(
+                    client_key=client_key,
+                    client_secret=client_secret_raw,
+                    open_popup_fn=None  # OS browser kullan
+                )
+                self.after(0, lambda: self._on_tiktok_oauth_result(result, client_key, client_secret_raw))
+            except Exception as e:
+                import traceback
+                err_msg = str(e)
+                print(f"DEBUG [_start_tiktok_oauth]: Exception: {err_msg}\n{traceback.format_exc()}")
+                self.after(0, lambda: self._on_tiktok_oauth_result({"success": False, "error": err_msg}, client_key, client_secret_raw))
+
+        t = threading.Thread(target=_run_oauth, daemon=True)
+        t.start()
+
+    def _on_tiktok_oauth_result(self, result: dict, client_key: str, client_secret_raw: str):
+        """OAuth tamamlandığında UI thread'inde çalışır."""
+        from src.uploader.tiktokapi import _encrypt_secret
+
+        # Butonu geri aç
+        self.btn_tt_oauth.configure(state="normal", text="🔐 TikTok ile Giriş Yap (OAuth 2.0)")
+
+        if result.get("success"):
+            access_token = result.get("access_token", "")
+            open_id = result.get("open_id", "")
+
+            # Entry alanlarını güncelle
+            self.entry_tt_id.delete(0, "end")
+            self.entry_tt_id.insert(0, open_id)
+
+            self.entry_tt_token.delete(0, "end")
+            self.entry_tt_token.insert(0, access_token)
+
+            # keys_data'yı güncelle (badge için)
+            self.keys_data["tiktok_access_token"] = access_token
+            self.keys_data["tiktok_open_id"] = open_id
+            self.keys_data["tiktok_client_key"] = client_key
+            self.keys_data["tiktok_client_secret"] = _encrypt_secret(client_secret_raw)
+            self.keys_data["tiktok_refresh_token"] = result.get("refresh_token", "")
+            self.keys_data["tiktok_expires_at"] = result.get("expires_at", 0)
+            self.keys_data["tiktok_refresh_expires_at"] = result.get("refresh_expires_at", 0)
+
+            self._update_status_badges()
+
+            self.lbl_tt_oauth_status.configure(
+                text=f"✅ Giriş başarılı! Open ID: {open_id[:20]}...",
+                text_color="#34D399"
+            )
+
+            if self.log_callback:
+                self.log_callback(f"✅ TikTok OAuth başarılı! Open ID: {open_id}")
+
+            messagebox.showinfo(
+                "TikTok Girişi Başarılı! 🎉",
+                f"TikTok hesabınız başarıyla bağlandı!\n\n"
+                f"• Open ID: {open_id}\n"
+                f"• Access Token alındı ve kaydedildi.\n\n"
+                f"Kaydet butonuna basarak tüm ayarları kalıcı hale getirin."
+            )
+        else:
+            err = result.get("error", "Bilinmeyen hata")
+            self.lbl_tt_oauth_status.configure(
+                text=f"❌ Hata: {err[:80]}",
+                text_color="#F87171"
+            )
+            if self.log_callback:
+                self.log_callback(f"❌ TikTok OAuth hatası: {err}")
+            messagebox.showerror(
+                "TikTok Girişi Başarısız",
+                f"Giriş sırasında hata oluştu:\n\n{err}\n\n"
+                f"Kontrol edin:\n"
+                f"• Client Key ve Client Secret doğru mu?\n"
+                f"• TikTok Developer Portal'da Redirect URI: http://127.0.0.1:8989/callback/ ekli mi?"
+            )
 
     def _test_instagram_api(self):
         acc_id = self.entry_ig_id.get().strip()

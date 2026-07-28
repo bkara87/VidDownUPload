@@ -1,5 +1,5 @@
 {
-  "version": "2.0.1",
-  "download_url": "https://github.com/bkara87/VidDownUPload/releases/download/v2.0.1/VidDownUPload_Setup_v2.0.1.exe",
-  "release_notes": "Sürüm 2.0.1: PyWebView + Edge WebView2 chromeless masaüstü arayüzü, sorunsuz FFmpeg entegrasyonu, gizli API anahtarı maskeleme, dinamik kurulum sihirbazı sürümü, otomatik sürüm yükseltme ve hata düzeltmeleri."
+  "version": "2.1.0",
+  "download_url": "https://github.com/bkara87/VidDownUPload/releases/download/v2.1.0/VidDownUPload_Setup_v2.1.0.exe",
+  "release_notes": "Sürüm 2.1.0: TikTok OAuth güvenli giriş düzeltmesi — Google hesabıyla giriş artık sistem tarayıcısında açılıyor (WebView2 engeli aşıldı), tek tıkla güvenli OAuth akışı, otomatik token alma."
 }

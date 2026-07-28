@@ -129,8 +129,15 @@ class SetupWindow(ctk.CTk):
         self.progress_bar.pack(fill="x", pady=(20, 5))
         self.progress_bar.set(0)
 
-        self.lbl_status = ctk.CTkLabel(body, text="Kuruluma başlamak için 'Kur' butonuna basın.", text_color="#94A3B8")
-        self.lbl_status.pack(anchor="w")
+        self.lbl_status = ctk.CTkLabel(
+            body,
+            text="Kuruluma başlamak için 'Kurulumu Başlat' butonuna basın.",
+            text_color="#94A3B8",
+            font=ctk.CTkFont(size=12),
+            wraplength=520,
+            justify="left"
+        )
+        self.lbl_status.pack(anchor="w", pady=(2, 0))
 
         # Bottom Buttons
         bottom_frame = ctk.CTkFrame(self, fg_color="#1E293B", height=60, corner_radius=0)
@@ -142,11 +149,12 @@ class SetupWindow(ctk.CTk):
             fg_color="#0284C7",
             hover_color="#0369A1",
             font=ctk.CTkFont(size=14, weight="bold"),
-            height=38,
+            height=40,
+            width=180,
             corner_radius=8,
             command=self._start_installation
         )
-        self.btn_install.pack(side="right", padx=25, pady=11)
+        self.btn_install.pack(side="right", padx=25, pady=10)
 
     def _safe_extract_zip(self, zip_path, target_dir):
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:

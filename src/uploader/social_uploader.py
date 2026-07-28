@@ -6,9 +6,16 @@ import requests
 from pathlib import Path
 from typing import Callable, Optional, Dict, Any
 
-from src.config import BASE_DIR
+from src.config import BASE_DIR, USER_DATA_DIR
 
-KEYS_FILE = BASE_DIR / "config_keys.json"
+KEYS_FILE = USER_DATA_DIR / "config_keys.json"
+
+def _safe_log_print(tag: str, msg: str):
+    try:
+        clean_msg = str(msg).encode('ascii', 'replace').decode('ascii')
+        print(f"[{tag}] {clean_msg}")
+    except Exception:
+        pass
 
 # ─────────────────────────────────────────────────────────────────
 # YARDIMCI FONKSİYON: Chunk-based streaming file upload
@@ -35,8 +42,11 @@ class InstagramGraphUploader:
     def upload_reel(video_path: str, caption: str, account_id: str, access_token: str, log_callback: Optional[Callable[[str], None]] = None) -> tuple[bool, str]:
         def log(msg: str):
             if log_callback:
-                log_callback(msg)
-            print(f"[InstagramUploader] {msg}")
+                try:
+                    log_callback(msg)
+                except Exception:
+                    pass
+            _safe_log_print("InstagramUploader", msg)
 
         # Sanitize credentials strings (strip whitespace, quotes, hidden line breaks)
         account_id = str(account_id or "").strip().strip('"').strip("'")
@@ -242,8 +252,11 @@ class InstagramDirectUploader:
     def upload_reel_direct(video_path: str, caption: str, username: str, password: str, sessionid: str = "", log_callback: Optional[Callable[[str], None]] = None) -> tuple[bool, str]:
         def log(msg: str):
             if log_callback:
-                log_callback(msg)
-            print(f"[InstagramDirectUploader] {msg}")
+                try:
+                    log_callback(msg)
+                except Exception:
+                    pass
+            _safe_log_print("InstagramDirectUploader", msg)
 
         username = str(username or "").strip()
         password = str(password or "").strip()
@@ -294,11 +307,35 @@ class InstagramDirectUploader:
                     pass
                 log("  ✓ Instagram hesabına giriş yapıldı ve oturum kaydedildi.")
 
+            # Set IMAGEIO_FFMPEG_EXE for any moviepy/imageio fallback
+            from src.config import FFMPEG_BINARY
+            if FFMPEG_BINARY and os.path.exists(FFMPEG_BINARY):
+                os.environ["IMAGEIO_FFMPEG_EXE"] = FFMPEG_BINARY
+
+            # Generate/Find JPG thumbnail for instagrapi (bypasses MoviePy thumbnail generation)
+            v_p = Path(video_path)
+            thumb_jpg = v_p.parent / f"{v_p.stem}_thumb.jpg"
+            if not thumb_jpg.exists():
+                try:
+                    import cv2
+                    cap = cv2.VideoCapture(str(video_path))
+                    if cap.isOpened():
+                        ret, frame = cap.read()
+                        cap.release()
+                        if ret and frame is not None:
+                            cv2.imwrite(str(thumb_jpg), frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+                except Exception:
+                    pass
+
             log("  [2/3] Reel videosu Instagram'a yükleniyor (clip upload)...")
-            media = cl.clip_upload(
-                path=Path(video_path),
-                caption=caption or ""
-            )
+            upload_kwargs = {
+                "path": v_p,
+                "caption": caption or ""
+            }
+            if thumb_jpg.exists():
+                upload_kwargs["thumbnail"] = thumb_jpg
+
+            media = cl.clip_upload(**upload_kwargs)
 
             if media and getattr(media, "pk", None):
                 media_id = str(media.pk)
@@ -340,7 +377,7 @@ class YouTubeShortsUploader:
     Google Cloud Console'dan OAuth2 kimlik bilgileri alınmalıdır.
     """
     TOKEN_URL = "https://oauth2.googleapis.com/token"
-    UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable"
+    UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status"
 
     @classmethod
     def _get_access_token(cls, client_id: str, client_secret: str, refresh_token: str, log) -> Optional[str]:
@@ -377,8 +414,11 @@ class YouTubeShortsUploader:
     ) -> tuple[bool, str]:
         def log(msg):
             if log_callback:
-                log_callback(msg)
-            print(f"[YouTubeUploader] {msg}")
+                try:
+                    log_callback(msg)
+                except Exception:
+                    pass
+            _safe_log_print("YouTubeUploader", msg)
 
         if not all([client_id, client_secret, refresh_token]):
             reason = (
@@ -511,10 +551,29 @@ class TikTokUploader:
     ) -> tuple[bool, str]:
         def log(msg):
             if log_callback:
-                log_callback(msg)
-            print(f"[TikTokUploader] {msg}")
+                try:
+                    log_callback(msg)
+                except Exception:
+                    pass
+            _safe_log_print("TikTokUploader", msg)
 
         access_token = str(access_token or "").strip()
+
+        # Automatic Token Refresh Check using config_keys.json
+        try:
+            if KEYS_FILE.exists():
+                with open(KEYS_FILE, "r", encoding="utf-8") as f:
+                    keys_data = json.load(f)
+                from src.uploader.tiktokapi import TikTokOAuthPKCE
+                valid_tok, was_refreshed = TikTokOAuthPKCE.ensure_valid_token(keys_data)
+                if was_refreshed:
+                    access_token = valid_tok
+                    log("  ✓ TikTok Access Token süresi dolduğu için otomatik yenilendi!")
+                elif valid_tok:
+                    access_token = valid_tok
+        except Exception as ref_err:
+            log(f"  ⚠️ TikTok token kontrol uyarısı: {ref_err}")
+
         if not access_token:
             reason = (
                 "❌ [TikTok] Access Token eksik!\n"
@@ -668,8 +727,11 @@ class ThreadsUploader:
     ) -> tuple[bool, str]:
         def log(msg):
             if log_callback:
-                log_callback(msg)
-            print(f"[ThreadsUploader] {msg}")
+                try:
+                    log_callback(msg)
+                except Exception:
+                    pass
+            _safe_log_print("ThreadsUploader", msg)
 
         threads_user_id = str(threads_user_id or "").strip()
         access_token = str(access_token or "").strip()
@@ -746,8 +808,11 @@ class FacebookReelsUploader:
     ) -> tuple[bool, str]:
         def log(msg):
             if log_callback:
-                log_callback(msg)
-            print(f"[FacebookUploader] {msg}")
+                try:
+                    log_callback(msg)
+                except Exception:
+                    pass
+            _safe_log_print("FacebookUploader", msg)
 
         page_id = str(page_id or "").strip()
         page_access_token = str(page_access_token or "").strip()
@@ -858,12 +923,13 @@ class SocialUploaderManager:
     """
     @staticmethod
     def load_keys_config() -> dict:
-        if KEYS_FILE.exists():
-            try:
-                with open(KEYS_FILE, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                pass
+        for kf in [KEYS_FILE, USER_DATA_DIR / "config_keys.json", BASE_DIR / "config_keys.json"]:
+            if kf and kf.exists():
+                try:
+                    with open(kf, "r", encoding="utf-8") as f:
+                        return json.load(f)
+                except Exception:
+                    pass
         return {}
 
     @classmethod
@@ -895,13 +961,36 @@ class SocialUploaderManager:
         """
         def log(msg: str):
             if log_callback:
-                log_callback(msg)
-            print(f"[SocialUploader] {msg}")
+                try:
+                    log_callback(msg)
+                except Exception:
+                    pass
+            _safe_log_print("SocialUploader", msg)
 
         keys_config = cls.load_keys_config()
         caption = cls.get_sidecar_caption(video_path)
-        title_short = os.path.splitext(os.path.basename(video_path))[0][:100]
         fn = os.path.basename(video_path)
+
+        # Retrieve YouTube Title from keys_config or sidecar metadata
+        yt_default_title = keys_config.get("youtube_default_title", "").strip()
+        sidecar_title = ""
+        base, _ = os.path.splitext(video_path)
+        meta_json = base + ".json"
+        if os.path.exists(meta_json):
+            try:
+                with open(meta_json, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+                    sidecar_title = meta.get("title", "").strip()
+            except Exception:
+                pass
+
+        if yt_default_title:
+            title_short = yt_default_title
+        elif sidecar_title and sidecar_title != "Video":
+            title_short = sidecar_title
+        else:
+            clean_fn = os.path.splitext(fn)[0].replace("processed_", "").replace("Video by ", "")
+            title_short = clean_fn
 
         results = {}
 
