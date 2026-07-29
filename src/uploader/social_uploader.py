@@ -534,11 +534,12 @@ class YouTubeShortsUploader:
 # ─────────────────────────────────────────────────────────────────
 class TikTokUploader:
     """
-    TikTok Content Posting API v2 ile video yükleme.
-    Gerekli: tiktok_access_token (Content Posting API scope: video.publish)
-    TikTok Developer Portal'dan alınmalıdır.
+    Official 2026 TikTok Content Posting API v2 Uploader.
+    Requires: tiktok_access_token (Content Posting API scope: video.upload or video.publish).
+    Handles chunk-based file streaming, progress logging, and status polling.
     """
     INIT_URL = "https://open.tiktokapis.com/v2/post/publish/video/init/"
+    CREATOR_INFO_URL = "https://open.tiktokapis.com/v2/post/publish/creator_info/query/"
     STATUS_URL = "https://open.tiktokapis.com/v2/post/publish/status/fetch/"
 
     @classmethod
@@ -566,7 +567,7 @@ class TikTokUploader:
                     keys_data = json.load(f)
                 from src.uploader.tiktokapi import TikTokOAuthPKCE
                 valid_tok, was_refreshed = TikTokOAuthPKCE.ensure_valid_token(keys_data)
-                if was_refreshed:
+                if was_refreshed and valid_tok:
                     access_token = valid_tok
                     log("  ✓ TikTok Access Token süresi dolduğu için otomatik yenilendi!")
                 elif valid_tok:
@@ -576,36 +577,70 @@ class TikTokUploader:
 
         if not access_token:
             reason = (
-                "❌ [TikTok] Access Token eksik!\n"
-                "  • TikTok Developer Portal → Content Posting API Access Token gereklidir.\n"
-                "  • '🔑 API Yönetimi' sekmesinden TikTok Access Token'ı kaydedin."
+                "❌ [TikTok] Giriş Yapılmamış veya Access Token Eksik!\n"
+                "  • Çözüm: Lütfen '🔑 API Yönetimi' sekmesinden '🔐 TikTok ile Giriş Yap' butonuna tıklayarak hesabınızı bağlayın."
             )
             log(reason)
             return False, reason
 
         if not os.path.exists(video_path):
-            reason = f"❌ [TikTok] Video dosyası bulunamadı: {video_path}"
+            reason = f"❌ [TikTok] Video dosyası diske erişilemedi: {video_path}"
             log(reason)
             return False, reason
 
         file_size = os.path.getsize(video_path)
         fn = os.path.basename(video_path)
 
-        log(f"  [1/3] TikTok Content Posting API — Upload başlatılıyor ({fn})...")
-
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json; charset=UTF-8"
         }
 
-        # Chunk size: TikTok requires min 5MB chunks
+        # 1. Query Creator Info & Privacy Level Options FIRST
+        log("  [1/4] TikTok Creator izinleri sorgulanıyor (creator_info/query)...")
+        selected_privacy_level = "SELF_ONLY"
+
+        try:
+            cinfo_resp = requests.post(cls.CREATOR_INFO_URL, headers=headers, json={}, timeout=30)
+            cinfo_json = cinfo_resp.json() if cinfo_resp.status_code == 200 else {}
+            err_code = cinfo_json.get("error", {}).get("code")
+
+            if cinfo_resp.status_code != 200 or (err_code and err_code != "ok"):
+                err_msg = cinfo_json.get("error", {}).get("message") or cinfo_resp.text
+                reason = f"❌ [TikTok Creator Info Sorgulama Hatası] HTTP {cinfo_resp.status_code}: {err_msg}"
+                log(reason)
+                return False, reason
+
+            data_info = cinfo_json.get("data", {})
+            privacy_options = data_info.get("privacy_level_options", [])
+
+            if "PUBLIC_TO_EVERYONE" in privacy_options:
+                selected_privacy_level = "PUBLIC_TO_EVERYONE"
+                log("  ✓ TikTok Creator izinleri doğrulandı. Video herkese açık (PUBLIC_TO_EVERYONE) olarak paylaşılıyor.")
+            elif "SELF_ONLY" in privacy_options:
+                selected_privacy_level = "SELF_ONLY"
+                log(
+                    "  ⚠️ Uygulamanız TikTok tarafından henüz denetlenmediği için (unaudited app) video sadece hesabınıza özel (SELF_ONLY) olarak yüklenecektir.\n"
+                    "  • Herkese açık paylaşım için TikTok'un app review sürecini tamamlamanız gerekir."
+                )
+            else:
+                selected_privacy_level = "SELF_ONLY"
+                log("  ⚠️ TikTok Gizlilik Seviyeleri listelenemedi, varsayılan olarak hesabınıza özel (SELF_ONLY) mod seçildi.")
+        except Exception as cinfo_err:
+            reason = f"❌ [TikTok Creator Info İstisnası] Sorgulama başarısız: {str(cinfo_err)}"
+            log(reason)
+            return False, reason
+
+        log(f"  [2/4] TikTok Content Posting API v2 — Oturum başlatılıyor ({fn}, {file_size // (1024*1024):.1f} MB)...")
+
+        # Chunk size: TikTok requires minimum 5MB chunk size
         chunk_size = max(5 * 1024 * 1024, math.ceil(file_size / 1000))
         total_chunks = math.ceil(file_size / chunk_size)
 
         init_body = {
             "post_info": {
                 "title": title[:150] if title else "Video",
-                "privacy_level": "PUBLIC_TO_EVERYONE",
+                "privacy_level": selected_privacy_level,
                 "disable_duet": False,
                 "disable_comment": False,
                 "disable_stitch": False,
@@ -624,8 +659,13 @@ class TikTokUploader:
             init_json = init_resp.json()
 
             if init_resp.status_code != 200 or init_json.get("error", {}).get("code") not in (None, "ok"):
-                err_msg = init_json.get("error", {}).get("message", init_resp.text)
-                reason = f"❌ [TikTok] Upload başlatılamadı: {err_msg}"
+                err_info = init_json.get("error", {})
+                err_code = err_info.get("code", "unknown")
+                err_msg = err_info.get("message", init_resp.text)
+                
+                from src.uploader.tiktokapi import TikTokOAuthPKCE
+                friendly_err = TikTokOAuthPKCE.get_friendly_error(err_code, err_msg)
+                reason = f"❌ [TikTok Paylaşım Başarısız] {friendly_err}"
                 log(reason)
                 return False, reason
 
@@ -634,12 +674,12 @@ class TikTokUploader:
             upload_url = data.get("upload_url")
 
             if not publish_id or not upload_url:
-                reason = "❌ [TikTok] publish_id veya upload_url alınamadı."
+                reason = "❌ [TikTok] publish_id veya upload_url sunucudan alınamadı."
                 log(reason)
                 return False, reason
 
-            log(f"  ✓ Upload URL alındı. (Publish ID: {publish_id})")
-            log(f"  [2/3] Video TikTok sunucularına chunk yükleniyor ({total_chunks} parça)...")
+            log(f"  ✓ TikTok yükleme oturumu hazır. (Publish ID: {publish_id})")
+            log(f"  [2/3] Video verisi TikTok sunucularına aktarılıyor ({total_chunks} parça)...")
 
             # Upload chunks
             offset = 0
@@ -663,18 +703,19 @@ class TikTokUploader:
                     )
 
                     if chunk_resp.status_code not in (200, 201, 204, 206):
-                        reason = f"❌ [TikTok] Chunk {chunk_idx+1}/{total_chunks} yüklenemedi (HTTP {chunk_resp.status_code})"
+                        reason = f"❌ [TikTok] Parça {chunk_idx+1}/{total_chunks} iletilemedi (HTTP {chunk_resp.status_code})"
                         log(reason)
                         return False, reason
 
                     offset += len(chunk_data)
-                    log(f"  ↑ Chunk {chunk_idx+1}/{total_chunks} yüklendi ({offset // (1024*1024):.1f}/{file_size // (1024*1024):.1f} MB)")
+                    progress_pct = int((offset / file_size) * 100)
+                    log(f"  ↑ TikTok Yükleme: %{progress_pct} ({offset // (1024*1024):.1f}/{file_size // (1024*1024):.1f} MB)")
 
-            log(f"  [3/3] TikTok işleme durumu kontrol ediliyor...")
+            log(f"  [3/3] TikTok videosu işleniyor ve yayınlanma durumu bekleniyor...")
 
             # Poll publish status
             status_body = {"publish_id": publish_id}
-            for poll_step in range(20):
+            for poll_step in range(24):
                 time.sleep(5)
                 st_resp = requests.post(cls.STATUS_URL, headers=headers, json=status_body, timeout=20)
                 st_json = st_resp.json()
@@ -682,23 +723,23 @@ class TikTokUploader:
                 status = st_data.get("status", "")
 
                 if status == "PUBLISH_COMPLETE":
-                    succ_msg = f"🎉 [TikTok] Video başarıyla yayınlandı! (Publish ID: {publish_id})"
+                    succ_msg = f"🎉 [TikTok] Video başarıyla hesabınızda yayınlandı! (Publish ID: {publish_id})"
                     log(succ_msg)
                     return True, succ_msg
                 elif status in ("FAILED", "PUBLISH_FAILED"):
-                    fail_reason = st_data.get("fail_reason", "Bilinmeyen hata")
-                    reason = f"❌ [TikTok] Yayın başarısız: {fail_reason}"
+                    fail_reason = st_data.get("fail_reason", "İçerik politikası veya format uyumsuzluğu")
+                    reason = f"❌ [TikTok Yayın Hatası] {fail_reason}"
                     log(reason)
                     return False, reason
                 else:
-                    log(f"  ⏳ TikTok işliyor ({poll_step+1}/20) Status: {status}...")
+                    log(f"  ⏳ TikTok işliyor ({poll_step+1}/24) Durum: {status}...")
 
-            reason = "❌ [TikTok] Video 100 saniye içinde yayınlanamadı (zaman aşımı)."
+            reason = "❌ [TikTok Zaman Aşımı] Video 120 saniyede tamamlanamadı. İşlem arka planda devam ediyor olabilir."
             log(reason)
             return False, reason
 
         except requests.exceptions.RequestException as e:
-            reason = f"❌ [TikTok Bağlantı Hatası] TikTok sunucularına erişilemedi: {e}"
+            reason = f"❌ [TikTok Bağlantı Hatası] Sunucuya erişilemedi: {e}"
             log(reason)
             return False, reason
         except Exception as e:

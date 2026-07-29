@@ -643,7 +643,7 @@ class ApiBridge:
                     data["instagram_auth"]["password"] = existing_auth.get("password", "")
 
             # Preserve access token / secrets if masked
-            for k in ["instagram_access_token", "youtube_client_secret", "tiktok_access_token", "tiktok_client_secret"]:
+            for k in ["instagram_access_token", "youtube_client_secret", "tiktok_access_token", "tiktok_client_secret", "tiktok_refresh_token"]:
                 if k in data and is_masked(data[k]):
                     data[k] = existing.get(k, "")
 
@@ -670,40 +670,15 @@ class ApiBridge:
             return {"success": False, "error": str(e)}
 
 
-    def start_tiktok_auth_wizard(self, client_key: str = "", client_secret: str = "", scope: str = "", mode: str = "browser") -> Dict[str, Any]:
+    def start_tiktok_auth_wizard(self, client_key: str = "", client_secret: str = "", scope: str = "video.publish", scope_fmt: str = "comma") -> Dict[str, Any]:
         """
         TikTok OAuth 2.0 PKCE Login Wizard.
-        Supports both In-App Popup Window and System Browser (Chrome/Edge) for Google OAuth compatibility.
+        Triggers system browser, receives callback, exchanges tokens & fetches user profile automatically.
         """
-        import traceback as _tb
-
-        def _show_auth_status(visible: bool, msg: str = ""):
-            """Show/hide the auth waiting status indicator in UI."""
-            if self._window:
-                try:
-                    display = "'block'" if visible else "'none'"
-                    js = f"(function(){{var el=document.getElementById('ttAuthStatus');if(el)el.style.display={display};"
-                    js += f"var btn=document.getElementById('btnTtAuth');if(btn)btn.disabled={'true' if visible else 'false'};"
-                    js += f"var btnBr=document.getElementById('btnTtAuthBrowser');if(btnBr)btnBr.disabled={'true' if visible else 'false'};"
-                    if msg:
-                        safe_msg = json.dumps(msg)
-                        js += f"var spans=el?el.querySelectorAll('span'):[];if(spans.length>1)spans[1].textContent={safe_msg};"
-                    js += "})();"
-                    self._window.evaluate_js(js)
-                except Exception:
-                    pass
-
-        def _wizard_worker():
+        import threading
+        def _worker():
             try:
-                from src.uploader.tiktokapi import (
-                    TikTokOAuthPKCE, OAuthCallbackHandler,
-                    ReuseThreadingHTTPServer, _decrypt_secret,
-                    _encrypt_secret, _open_url_in_browser, KEYS_FILE as _KEYS_FILE
-                )
-                import secrets as _sec
-                import time as _time
-                import json as _json
-
+                from src.uploader.tiktokapi import TikTokOAuthPKCE, _decrypt_secret
                 keys = self.get_api_keys()
 
                 ck = client_key.strip()
@@ -717,180 +692,161 @@ class ApiBridge:
                 cs = _decrypt_secret(raw_cs)
 
                 if not ck or not cs:
-                    self.log("\u274c Lütfen önce TikTok Client Key ve Client Secret girin.", "error")
-                    _show_auth_status(False)
+                    self.log("❌ Lütfen önce TikTok Client Key ve Client Secret girin.", "error")
                     return
 
-                req_scope = scope.strip() if scope else keys.get("tiktok_scope", "user.info.basic,video.publish").strip()
+                chosen_scope = scope.strip() if scope else "video.publish"
+                self.log(f"🔐 TikTok OAuth 2.0 PKCE Giriş Sihirbazı başlatılıyor (Scope: {chosen_scope}, Format: {scope_fmt})...", "info")
+                res = TikTokOAuthPKCE.run_auth_wizard(ck, cs, scope=chosen_scope, scope_fmt=scope_fmt)
 
-                # PKCE pair ve state
-                verifier, challenge = TikTokOAuthPKCE.generate_pkce_pair()
-                state = _sec.token_hex(16)
-
-                # Callback handler sıfırla
-                OAuthCallbackHandler.auth_code = None
-                OAuthCallbackHandler.state = None
-                OAuthCallbackHandler.error = None
-
-                # Yerel callback dinleyici
-                server = None
-                chosen_port = None
-                for try_port in [8989, 8990, 8991, 8992]:
-                    try:
-                        server = ReuseThreadingHTTPServer(("127.0.0.1", try_port), OAuthCallbackHandler)
-                        server.timeout = 1.0
-                        chosen_port = try_port
-                        print(f"DEBUG [tt_wizard]: Callback server started on port {try_port}")
-                        break
-                    except Exception as pe:
-                        print(f"DEBUG [tt_wizard]: Port {try_port} busy: {pe}")
-
-                if not server:
-                    self.log("\u274c Yerel callback dinleyici başlatılamıyor (portlar meşgul). Lütfen 8989-8992 portlarını kontrol edin.", "error")
-                    _show_auth_status(False)
-                    return
-
-                TikTokOAuthPKCE.PORT = chosen_port
-                TikTokOAuthPKCE.REDIRECT_URI = f"http://127.0.0.1:{chosen_port}/callback/"
-
-                auth_url = TikTokOAuthPKCE.get_auth_url(ck, challenge, state, scope=req_scope)
-                print(f"DEBUG [tt_wizard]: auth_url = {auth_url}, mode = {mode}")
-
-                popup = None
-                if mode == "browser":
-                    _open_url_in_browser(auth_url)
-                    self.log("⚡ Sistem tarayıcınızda TikTok giriş sayfası açıldı (Google hesabınızla giriş yapabilirsiniz)...", "info")
-                    _show_auth_status(True, "Sistem tarayıcısında giriş bekleniyor...")
-                else:
-                    try:
-                        from src.utils.webview_stealth import apply_webview_stealth_patch
-                        apply_webview_stealth_patch()
-                        popup = webview.create_window(
-                            title="TikTok Giriş Yap - VidDownUPload",
-                            url=auth_url,
-                            width=580,
-                            height=740,
-                            resizable=True,
-                            min_size=(450, 600),
-                            background_color='#0B0F19'
-                        )
-                        print(f"DEBUG [tt_wizard]: Uygulama içi popup penceresi açıldı: {popup}")
-                        self.log("\u26a1 Uygulama içi giriş penceresi açıldı. Lütfen pencereden girişinizi yapın...", "info")
-                        _show_auth_status(True, "Giriş penceresinde bekleniyor... Giriş sonrası token otomatik çekilecek.")
-                    except Exception as pop_err:
-                        print(f"DEBUG [tt_wizard]: Popup açma hatası, harici tarayıcıya yönlendiriliyor: {pop_err}")
-                        _open_url_in_browser(auth_url)
-                        self.log("\u26a1 Sistem tarayıcınızda TikTok giriş sayfası açıldı. Lütfen giriş yapın...", "info")
-                        _show_auth_status(True, "Tarayıcıda giriş bekleniyor... Giriş yaptıktan sonra token otomatik alınacak.")
-
-                # Callback'i bekle (max 180 saniye)
-                deadline = _time.time() + 180
-                while _time.time() < deadline:
-                    server.handle_request()
-                    if OAuthCallbackHandler.auth_code or OAuthCallbackHandler.error:
-                        print(f"DEBUG [tt_wizard]: Callback received! code={str(OAuthCallbackHandler.auth_code or '')[:20]}...")
-                        break
-
-                server.server_close()
-
-                # Popup pencereyi kapat
-                if popup:
-                    try:
-                        _time.sleep(1.5)  # Kullanıcının başarı ekranını görmesi için kısa bekleme
-                        popup.destroy()
-                        print("DEBUG [tt_wizard]: Popup penceresi kapatıldı.")
-                    except Exception as dest_err:
-                        print(f"DEBUG [tt_wizard]: Popup kapatma uyarısı: {dest_err}")
-
-                # Hata kontrolleri
-                if OAuthCallbackHandler.error:
-                    self.log(f"\u274c Giriş reddedildi: {OAuthCallbackHandler.error}", "error")
-                    _show_auth_status(False)
-                    return
-                if not OAuthCallbackHandler.auth_code:
-                    self.log("\u274c Zaman aşımı: 180 saniyede giriş yapılamadı. Tekrar deneyin.", "error")
-                    _show_auth_status(False)
-                    return
-                if OAuthCallbackHandler.state != state:
-                    self.log("\u274c Güvenlik İhlali (CSRF): State doğrulanamadı!", "error")
-                    _show_auth_status(False)
-                    return
-
-                _show_auth_status(True, "Token alınıyor, lütfen bekleyin...")
-
-                # Token exchange
-                print("DEBUG [tt_wizard]: Calling exchange_code_for_token...")
-                res = TikTokOAuthPKCE.exchange_code_for_token(
-                    client_key=ck,
-                    client_secret=cs,
-                    code=OAuthCallbackHandler.auth_code,
-                    code_verifier=verifier
-                )
-                print(f"DEBUG [tt_wizard]: exchange result = {res}")
+                if isinstance(res, str):
+                    res = {"success": False, "error": res}
+                elif not isinstance(res, dict):
+                    res = {"success": False, "error": str(res)}
 
                 if res.get("success"):
+                    uname = res.get("username") or res.get("display_name") or ""
                     open_id = res.get("open_id", "")
-                    access_token = res.get("access_token", "")
-
-                    # Diske kaydet
-                    try:
-                        existing = {}
-                        if _KEYS_FILE.exists():
-                            with open(_KEYS_FILE, "r", encoding="utf-8") as f:
-                                existing = _json.load(f)
-                        existing["tiktok_access_token"] = access_token
-                        existing["tiktok_open_id"] = open_id
-                        existing["tiktok_client_key"] = ck
-                        existing["tiktok_client_secret"] = _encrypt_secret(cs)
-                        existing["tiktok_expires_at"] = int(_time.time()) + res.get("expires_in", 86400)
-                        if res.get("refresh_token"):
-                            existing["tiktok_refresh_token"] = res["refresh_token"]
-                        if res.get("refresh_expires_at"):
-                            existing["tiktok_refresh_expires_at"] = res["refresh_expires_at"]
-                        with open(_KEYS_FILE, "w", encoding="utf-8") as f:
-                            _json.dump(existing, f, ensure_ascii=False, indent=2)
-                        print(f"DEBUG [tt_wizard]: Saved to disk OK. open_id={open_id}")
-                    except Exception as save_err:
-                        print(f"DEBUG [tt_wizard]: Disk save error: {save_err}\n{_tb.format_exc()}")
-
-                    self.log(f"\u2705 TikTok Girişi Başarılı! Open ID: {open_id}", "success")
-                    _show_auth_status(False)
-
-                    # JS ile UI'yı güncelle
-                    _time.sleep(0.8)
+                    self.log("🎉 TikTok hesabınız başarıyla bağlandı.", "success")
                     if self._window:
                         try:
-                            safe_token = _json.dumps(access_token)
-                            safe_openid = _json.dumps(open_id)
-                            safe_ck = _json.dumps(ck)
-                            js = (
-                                f"(function(){{"
-                                f"if(typeof safeSet==='function'){{"
-                                f"safeSet('ttAccessToken',{safe_token});"
-                                f"safeSet('ttOpenId',{safe_openid});"
-                                f"safeSet('ttClientKey',{safe_ck});"
-                                f"}}"
-                                f"if(typeof saveApiKeys==='function'){{saveApiKeys();}}"
-                                f"var dot=document.getElementById('dotTt');if(dot)dot.classList.add('active');"
-                                f"}})();"
+                            self._window.evaluate_js(
+                                "if(typeof refreshApiKeysUI==='function') refreshApiKeysUI(); "
+                                "var st = document.getElementById('ttAuthStatus'); if(st) st.style.display='none'; "
+                                "var btn = document.getElementById('btnTtAuth'); if(btn) btn.disabled=false;"
                             )
-                            self._window.evaluate_js(js)
-                            print("DEBUG [tt_wizard]: UI updated via evaluate_js OK.")
-                        except Exception as js_err:
-                            print(f"DEBUG [tt_wizard]: evaluate_js error: {js_err}\n{_tb.format_exc()}")
+                        except Exception:
+                            pass
                 else:
-                    self.log(f"\u274c TikTok Token Alınamadı: {res.get('error')}", "error")
-                    _show_auth_status(False)
-
+                    self.log(f"❌ TikTok Girişi Başarısız: {res.get('error')}", "error")
+                    if self._window:
+                        try:
+                            self._window.evaluate_js(
+                                "var st = document.getElementById('ttAuthStatus'); if(st) st.style.display='none'; "
+                                "var btn = document.getElementById('btnTtAuth'); if(btn) btn.disabled=false;"
+                            )
+                        except Exception:
+                            pass
             except Exception as e:
-                print(f"DEBUG [tt_wizard] EXCEPTION: {e}\n{_tb.format_exc()}")
-                self.log(f"\u274c TikTok Sihirbaz Hatası: {e}", "error")
-                _show_auth_status(False)
+                self.log(f"❌ TikTok OAuth İstisnası: {str(e)}", "error")
 
-        _show_auth_status(True, "Bağlantı kuruluyor...")
-        t = threading.Thread(target=_wizard_worker, daemon=True)
+        t = threading.Thread(target=_worker, daemon=True)
         t.start()
-        return {"success": True, "message": "TikTok Giriş Sihirbazı başlatıldı."}
+        return {"success": True, "message": "Giriş işlemi başlatıldı..."}
+
+    def save_manual_tiktok_token(self, access_token: str, open_id: str = "") -> Dict[str, Any]:
+        """Saves manually pasted TikTok Access Token & Open ID directly into config_keys.json."""
+        acc_tok = (access_token or "").strip()
+        open_id_val = (open_id or "").strip()
+
+        if not acc_tok:
+            return {"success": False, "error": "Access Token boş olamaz."}
+
+        try:
+            from src.uploader.tiktokapi import TikTokOAuthPKCE, KEYS_FILE
+            existing = {}
+            if KEYS_FILE.exists():
+                with open(KEYS_FILE, "r", encoding="utf-8") as f:
+                    existing = json.load(f)
+
+            existing["tiktok_access_token"] = acc_tok
+            existing["tiktok_open_id"] = open_id_val
+            existing["tiktok_expires_at"] = int(time.time()) + (30 * 86400) # 30 days default fallback
+
+            # Auto fetch user info
+            user_info = TikTokOAuthPKCE.fetch_user_info(acc_tok)
+            if user_info.get("success"):
+                existing["tiktok_username"] = user_info.get("username", "")
+                existing["tiktok_display_name"] = user_info.get("display_name", "")
+                existing["tiktok_avatar_url"] = user_info.get("avatar_url", "")
+                if not open_id_val and user_info.get("open_id"):
+                    existing["tiktok_open_id"] = user_info["open_id"]
+
+            with open(KEYS_FILE, "w", encoding="utf-8") as f:
+                json.dump(existing, f, ensure_ascii=False, indent=2)
+
+            self.log(f"🎉 Manuel TikTok Access Token Başarıyla Kaydedildi! (Hesap: @{existing.get('tiktok_username', 'Bilinmiyor')})", "success")
+            
+            if self._window:
+                try:
+                    self._window.evaluate_js("if(typeof refreshApiKeysUI==='function') refreshApiKeysUI();")
+                except Exception:
+                    pass
+
+            return {"success": True, "message": "TikTok Token kaydedildi."}
+        except Exception as e:
+            self.log(f"❌ Manuel Token Kaydetme Hatası: {str(e)}", "error")
+            return {"success": False, "error": str(e)}
+
+    def test_tiktok_connection(self) -> Dict[str, Any]:
+        """Tests saved TikTok token and returns user profile & diagnostic details."""
+        try:
+            from src.uploader.tiktokapi import TikTokOAuthPKCE, KEYS_FILE
+            keys = self.get_api_keys()
+            tok, refreshed = TikTokOAuthPKCE.ensure_valid_token(keys)
+
+            if not tok:
+                return {
+                    "success": False,
+                    "message": "❌ TikTok Access Token bulunamadı. Lütfen 'TikTok ile Giriş Yap' butonuna tıklayarak hesabınızı bağlayın."
+                }
+
+            user_res = TikTokOAuthPKCE.fetch_user_info(tok)
+            if user_res.get("success"):
+                uname = user_res.get("username") or user_res.get("display_name") or "Kullanıcı"
+                open_id = user_res.get("open_id") or keys.get("tiktok_open_id", "")
+                
+                # Save refreshed username into config
+                try:
+                    if KEYS_FILE.exists():
+                        with open(KEYS_FILE, "r", encoding="utf-8") as f:
+                            kd = json.load(f)
+                        kd["tiktok_username"] = user_res.get("username", "")
+                        kd["tiktok_display_name"] = user_res.get("display_name", "")
+                        kd["tiktok_avatar_url"] = user_res.get("avatar_url", "")
+                        with open(KEYS_FILE, "w", encoding="utf-8") as f:
+                            json.dump(kd, f, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
+
+                return {
+                    "success": True,
+                    "message": f"✅ TikTok API Bağlantısı Başarılı! Bağlı Hesap: @{uname}",
+                    "username": user_res.get("username"),
+                    "display_name": user_res.get("display_name"),
+                    "avatar_url": user_res.get("avatar_url"),
+                    "open_id": open_id
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": f"⚠️ TikTok API Doğrulama Uyarısı: {user_res.get('error')}"
+                }
+        except Exception as e:
+            return {"success": False, "message": f"❌ TikTok Test Hatası: {str(e)}"}
+
+    def reset_tiktok_connection(self) -> Dict[str, Any]:
+        """Clears stored TikTok token, open_id and user profile info."""
+        try:
+            user_keys_file = USER_DATA_DIR / "config_keys.json"
+            if user_keys_file.exists():
+                with open(user_keys_file, "r", encoding="utf-8") as f:
+                    kd = json.load(f)
+
+                for field in [
+                    "tiktok_access_token", "tiktok_refresh_token", "tiktok_open_id",
+                    "tiktok_expires_at", "tiktok_refresh_expires_at",
+                    "tiktok_username", "tiktok_display_name", "tiktok_avatar_url"
+                ]:
+                    kd.pop(field, None)
+
+                with open(user_keys_file, "w", encoding="utf-8") as f:
+                    json.dump(kd, f, ensure_ascii=False, indent=2)
+
+            self.log("🗑️ TikTok hesabı ve bağlantı oturumu başarıyla sıfırlandı.", "info")
+            return {"success": True, "message": "TikTok bağlantısı sıfırlandı."}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     def test_instagram_api(self) -> Dict[str, Any]:
         """Robustly test Instagram / Meta Access Token validity across multiple Graph endpoints."""

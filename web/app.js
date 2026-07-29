@@ -1189,9 +1189,11 @@ function loadApiKeys() {
     // TikTok
     safeSet('ttClientKey', keys.tiktok_client_key || '');
     safeSet('ttClientSecret', keys.tiktok_client_secret || '');
-    safeSet('ttScope', keys.tiktok_scope || 'user.info.basic,video.publish');
+    safeSet('ttScope', keys.tiktok_scope || 'video.publish');
     safeSet('ttOpenId', keys.tiktok_open_id || '');
     safeSet('ttAccessToken', keys.tiktok_access_token || '');
+    safeSet('ttRefreshToken', keys.tiktok_refresh_token || '');
+    updateTtTokenStatus(keys);
 
     // Facebook
     safeSet('fbPageId', keys.facebook_page_id || '');
@@ -1201,6 +1203,62 @@ function loadApiKeys() {
 
     updateApiStatusDots(keys);
   }).catch(() => {});
+}
+
+function updateTtTokenStatus(keys) {
+  const openIdEl = document.getElementById('ttInfoOpenId');
+  const connStatusEl = document.getElementById('ttInfoConnStatus');
+  const tokenStatusEl = document.getElementById('ttInfoTokenStatus');
+  const expiresAtEl = document.getElementById('ttInfoExpiresAt');
+  const refreshStatusEl = document.getElementById('ttInfoRefreshStatus');
+  const lastRefreshedEl = document.getElementById('ttInfoLastRefreshed');
+
+  const displayNameEl = document.getElementById('ttDisplayName');
+  const usernameEl = document.getElementById('ttUsername');
+  const badgeStatusEl = document.getElementById('ttBadgeStatus');
+  const avatarBoxEl = document.getElementById('ttAvatarBox');
+
+  const token = keys.tiktok_access_token;
+  const expAt = keys.tiktok_expires_at || 0;
+  const now = Math.floor(Date.now() / 1000);
+
+  if (displayNameEl) displayNameEl.textContent = keys.tiktok_display_name || keys.tiktok_username || (token ? 'TikTok Hesabı' : 'Henüz Bağlanmadı');
+  if (usernameEl) usernameEl.textContent = keys.tiktok_username ? ('@' + keys.tiktok_username) : (token ? 'Bağlı Hesap' : '@kullanici_adi');
+
+  if (avatarBoxEl) {
+    if (keys.tiktok_avatar_url) {
+      avatarBoxEl.innerHTML = `<img src="${keys.tiktok_avatar_url}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">`;
+    } else {
+      avatarBoxEl.innerHTML = '🎵';
+    }
+  }
+
+  if (openIdEl) openIdEl.textContent = keys.tiktok_open_id ? (keys.tiktok_open_id.substring(0, 14) + '...') : '—';
+
+  if (!token) {
+    if (connStatusEl) { connStatusEl.textContent = 'Giriş Yapılmadı'; connStatusEl.style.color = '#94A3B8'; }
+    if (tokenStatusEl) { tokenStatusEl.textContent = 'Yok'; tokenStatusEl.style.color = '#94A3B8'; }
+    if (expiresAtEl) expiresAtEl.textContent = '—';
+    if (refreshStatusEl) { refreshStatusEl.textContent = '—'; refreshStatusEl.style.color = '#94A3B8'; }
+    if (badgeStatusEl) badgeStatusEl.className = 'status-dot unknown';
+  } else if (expAt > 0 && now >= expAt) {
+    if (connStatusEl) { connStatusEl.textContent = 'Süresi Doldu (Yenilenecek)'; connStatusEl.style.color = '#F59E0B'; }
+    if (tokenStatusEl) { tokenStatusEl.textContent = 'Süresi Doldu'; tokenStatusEl.style.color = '#F59E0B'; }
+    if (expiresAtEl) expiresAtEl.textContent = new Date(expAt * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    if (badgeStatusEl) badgeStatusEl.className = 'status-dot unknown';
+    if (refreshStatusEl) { refreshStatusEl.textContent = keys.tiktok_refresh_token ? '🟢 Otomatik Aktif' : 'Yok'; refreshStatusEl.style.color = '#10B981'; }
+  } else {
+    const hoursLeft = expAt > 0 ? Math.round((expAt - now) / 3600) : 24;
+    if (connStatusEl) { connStatusEl.textContent = '🟢 Bağlı'; connStatusEl.style.color = '#10B981'; }
+    if (tokenStatusEl) { tokenStatusEl.textContent = 'Geçerli'; tokenStatusEl.style.color = '#10B981'; }
+    if (expiresAtEl) expiresAtEl.textContent = expAt > 0 ? `${hoursLeft} saat kaldı` : 'Geçerli';
+    if (badgeStatusEl) badgeStatusEl.className = 'status-dot ok';
+    if (refreshStatusEl) { refreshStatusEl.textContent = keys.tiktok_refresh_token ? '🟢 Otomatik Aktif' : 'Yok'; refreshStatusEl.style.color = '#10B981'; }
+  }
+
+  if (lastRefreshedEl) {
+    lastRefreshedEl.textContent = expAt > 0 ? new Date((expAt - 86400) * 1000).toLocaleDateString() : '—';
+  }
 }
 
 function refreshApiKeysUI() {
@@ -1234,9 +1292,11 @@ function refreshApiKeysUI() {
     // TikTok
     safeSet('ttClientKey', keys.tiktok_client_key || '');
     safeSet('ttClientSecret', keys.tiktok_client_secret || '');
-    safeSet('ttScope', keys.tiktok_scope || 'user.info.basic,video.publish');
+    safeSet('ttScope', keys.tiktok_scope || 'video.publish');
     safeSet('ttOpenId', keys.tiktok_open_id || '');
     safeSet('ttAccessToken', keys.tiktok_access_token || '');
+    safeSet('ttRefreshToken', keys.tiktok_refresh_token || '');
+    updateTtTokenStatus(keys);
 
     // Facebook
     safeSet('fbPageId', keys.facebook_page_id || '');
@@ -1296,9 +1356,10 @@ function saveApiKeys() {
     youtube_default_title: document.getElementById('ytDefaultTitle') ? document.getElementById('ytDefaultTitle').value.trim() : '',
     tiktok_client_key:     document.getElementById('ttClientKey').value.trim(),
     tiktok_client_secret:  document.getElementById('ttClientSecret').value.trim(),
-    tiktok_scope:          document.getElementById('ttScope') ? document.getElementById('ttScope').value.trim() : 'user.info.basic,video.publish',
+    tiktok_scope:          document.getElementById('ttScope') ? document.getElementById('ttScope').value.trim() : 'video.publish',
     tiktok_open_id:        document.getElementById('ttOpenId').value.trim(),
     tiktok_access_token:   document.getElementById('ttAccessToken').value.trim(),
+    tiktok_refresh_token:  document.getElementById('ttRefreshToken') ? document.getElementById('ttRefreshToken').value.trim() : '',
     facebook_page_id:      document.getElementById('fbPageId').value.trim(),
     threads_user_id:       document.getElementById('thUserId').value.trim()
   };
@@ -1315,42 +1376,58 @@ function saveApiKeys() {
   }
 }
 
-function startTikTokAuthWizard(mode = 'popup') {
-  console.log('DEBUG [startTikTokAuthWizard]: Function triggered mode=', mode);
+function startTikTokAuthWizard() {
   const clientKey = document.getElementById('ttClientKey').value.trim();
   const clientSecret = document.getElementById('ttClientSecret') ? document.getElementById('ttClientSecret').value.trim() : '';
-  const scope = (document.getElementById('ttScope') ? document.getElementById('ttScope').value.trim() : '') || 'user.info.basic,video.publish';
+  const scopeVal = document.getElementById('ttScope') ? document.getElementById('ttScope').value.trim() : 'video.publish';
+  const scopeFmt = document.getElementById('ttScopeFmt') ? document.getElementById('ttScopeFmt').value : 'comma';
 
   if (!clientKey) {
-    appendLog('❌ TikTok Client Key boş olamaz. Lütfen önce Client Key girin.', 'error');
+    appendLog('❌ Lütfen önce TikTok Client Key alanını doldurun!', 'error');
     return;
   }
 
-  // Show waiting status
   var statusEl = document.getElementById('ttAuthStatus');
   var btnEl = document.getElementById('btnTtAuth');
-  var btnBr = document.getElementById('btnTtAuthBrowser');
   if (statusEl) statusEl.style.display = 'block';
   if (btnEl) btnEl.disabled = true;
-  if (btnBr) btnBr.disabled = true;
 
-  const modeMsg = mode === 'browser' ? 'Sistem tarayıcınız açılacak (Google girişi desteklenir).' : 'Uygulama içi pencere açılacak.';
-  appendLog('🔐 TikTok Giriş Sihirbazı başlatılıyor... ' + modeMsg, 'info');
+  appendLog(`🔐 TikTok Giriş Sihirbazı başlatılıyor... (Scope: ${scopeVal}, Format: ${scopeFmt})`, 'info');
 
   if (window.pywebview && window.pywebview.api) {
-    window.pywebview.api.start_tiktok_auth_wizard(clientKey, clientSecret, scope, mode).then(res => {
-      console.log('DEBUG [startTikTokAuthWizard]: Async wizard started:', res);
+    window.pywebview.api.start_tiktok_auth_wizard(clientKey, clientSecret, scopeVal, scopeFmt).then(res => {
+      console.log('DEBUG [startTikTokAuthWizard]: Wizard response:', res);
     }).catch(err => {
-      appendLog('❌ Bağlantı hatası: ' + err, 'error');
+      appendLog('❌ Giriş başlatma hatası: ' + err, 'error');
       if (statusEl) statusEl.style.display = 'none';
       if (btnEl) btnEl.disabled = false;
-      if (btnBr) btnBr.disabled = false;
     });
-  } else {
-    appendLog('❌ PyWebView API bağlantısı bulunamadı.', 'error');
-    if (statusEl) statusEl.style.display = 'none';
-    if (btnEl) btnEl.disabled = false;
-    if (btnBr) btnBr.disabled = false;
+  }
+}
+
+function testTikTokConnection() {
+  appendLog('⚡ TikTok API bağlantısı ve profil bilgileri doğrulanıyor...', 'info');
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.test_tiktok_connection().then(res => {
+      if (res.success) {
+        appendLog(res.message, 'success');
+        refreshApiKeysUI();
+      } else {
+        appendLog(res.message, 'error');
+      }
+    }).catch(err => {
+      appendLog('❌ TikTok test hatası: ' + err, 'error');
+    });
+  }
+}
+
+function resetTikTokConnection() {
+  if (!confirm('TikTok hesabınızı ve oturum bilgilerinizi sıfırlamak istediğinize emin misiniz?')) return;
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.reset_tiktok_connection().then(res => {
+      appendLog('🗑️ TikTok hesabı bağlantısı sıfırlandı.', 'info');
+      refreshApiKeysUI();
+    });
   }
 }
 
@@ -1741,5 +1818,87 @@ function saveFrameTemplateFromWizard() {
         alert('❌ Şablon kaydetme hatası: ' + (res.error || ''));
       }
     });
+  }
+}
+
+function saveManualTikTokToken() {
+  const tokInput = document.getElementById('ttAccessToken');
+  const openIdInput = document.getElementById('ttOpenId');
+  const tokenVal = tokInput ? tokInput.value.trim() : '';
+  const openIdVal = openIdInput ? openIdInput.value.trim() : '';
+
+  if (!tokenVal) {
+    alert('Lütfen TikTok Access Token metnini yapıştırın!');
+    return;
+  }
+
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.save_manual_tiktok_token(tokenVal, openIdVal).then(res => {
+      if (res.success) {
+        alert('🎉 TikTok Access Token başarıyla kaydedildi!');
+        if (typeof refreshApiKeysUI === 'function') refreshApiKeysUI();
+      } else {
+        alert('❌ Hata: ' + (res.error || 'Token kaydedilemedi.'));
+      }
+    }).catch(err => {
+      alert('❌ Token kaydetme istisnası: ' + err);
+    });
+  } else {
+    alert('API bağlantısı bulunamadı.');
+  }
+}
+
+function updateTtTokenStatus(info) {
+  if (!info) return;
+  const dName = document.getElementById('ttDisplayName');
+  const uName = document.getElementById('ttUsername');
+  const connStatus = document.getElementById('ttInfoConnStatus');
+  const expAt = document.getElementById('ttInfoExpiresAt');
+  const tokDisp = document.getElementById('ttFullAccessTokenDisplay');
+  const openIdDisp = document.getElementById('ttFullOpenIdDisplay');
+  const refDisp = document.getElementById('ttFullRefreshTokenDisplay');
+  const badge = document.getElementById('ttBadgeStatus');
+
+  if (dName) dName.textContent = info.display_name || info.username || (info.connected ? 'Bağlandı' : 'Henüz Bağlanmadı');
+  if (uName) uName.textContent = info.username ? ('@' + info.username) : '@kullanici_adi';
+  if (connStatus) {
+    connStatus.textContent = info.connected ? '🟢 Bağlı' : '🔴 Giriş Yapılmadı';
+    connStatus.style.color = info.connected ? '#10B981' : '#EF4444';
+  }
+  if (badge) {
+    badge.className = info.connected ? 'status-dot online' : 'status-dot offline';
+  }
+  if (expAt) expAt.textContent = info.expires_at_str || '—';
+
+  if (tokDisp) tokDisp.value = info.access_token || '';
+  if (openIdDisp) openIdDisp.value = info.open_id || '';
+  if (refDisp) refDisp.value = info.refresh_token || '';
+
+  const tokInput = document.getElementById('ttAccessToken');
+  const openIdInput = document.getElementById('ttOpenId');
+  if (tokInput && info.access_token) tokInput.value = info.access_token;
+  if (openIdInput && info.open_id) openIdInput.value = info.open_id;
+}
+
+function refreshApiKeysUI() {
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.get_api_keys().then(keys => {
+      if (!keys) return;
+      if (keys.tiktok_client_key) {
+        const el = document.getElementById('ttClientKey');
+        if (el) el.value = keys.tiktok_client_key;
+      }
+      if (keys.tiktok_access_token || keys.tiktok_open_id) {
+        updateTtTokenStatus({
+          connected: !!keys.tiktok_access_token,
+          access_token: keys.tiktok_access_token || '',
+          open_id: keys.tiktok_open_id || '',
+          refresh_token: keys.tiktok_refresh_token || '',
+          username: keys.tiktok_username || '',
+          display_name: keys.tiktok_display_name || '',
+          expires_at_str: keys.tiktok_expires_at ? new Date(keys.tiktok_expires_at * 1000).toLocaleString('tr-TR') : '—'
+        });
+      }
+    }).catch(() => {});
   }
 }

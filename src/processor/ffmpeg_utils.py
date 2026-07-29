@@ -18,6 +18,7 @@ QUALITY_PRESETS = {
     "✨ Yüksek Kalite":        {"preset": "slow",      "crf": "18", "audio_br": "192k"},
     "🏆 Maksimum Kalite":      {"preset": "veryslow",  "crf": "16", "audio_br": "256k"},
 }
+DEFAULT_QUALITY = "🚀 Hızlı (Düşük CPU)"
 def safe_print(*args, **kwargs):
     try:
         msg = " ".join(str(a) for a in args)

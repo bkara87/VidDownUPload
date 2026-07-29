@@ -394,8 +394,8 @@
     <!-- ╔══════════════════════════════════════╗ -->
     <!-- ║       TAB 4 — API                   ║ -->
     <!-- ╚══════════════════════════════════════╝ -->
-    <section id="panel-api" class="tab-panel">
-      <div class="api-layout">
+    <section id="panel-api" class="tab-panel" style="overflow-y:auto; height:calc(100vh - 80px); padding-bottom:40px;">
+      <div class="api-layout" style="overflow-y:auto; max-height:100%; padding-right:8px;">
 
         <div style="display:flex; align-items:center; justify-content:space-between; flex-shrink:0;">
           <div>
@@ -498,43 +498,117 @@
           <div class="api-section-body collapsed" id="bodyTt">
             <div>
               <label class="form-label">TikTok App Client Key</label>
-              <input type="text" id="ttClientKey" placeholder="TikTok App Client Key (aw...)">
+              <input type="text" id="ttClientKey" placeholder="TikTok Developer App Client Key">
             </div>
             <div>
               <label class="form-label">TikTok App Client Secret</label>
               <div class="flex gap-4">
-                <input type="password" id="ttClientSecret" placeholder="TikTok App Client Secret" style="flex:1;">
+                <input type="password" id="ttClientSecret" placeholder="TikTok Developer App Client Secret" style="flex:1;">
                 <button type="button" class="btn btn-secondary" onclick="togglePasswordVisibility('ttClientSecret')" style="padding:4px 12px;">👁️</button>
               </div>
             </div>
+
+            <!-- Scope Mode Selector -->
             <div>
-              <label class="form-label" style="font-size:11px; opacity:0.7;">TikTok Scope (Yetki İzinleri)</label>
-              <input type="text" id="ttScope" value="user.info.basic,video.publish" placeholder="user.info.basic,video.publish" style="font-size:12px;">
-              <div class="flex gap-4 mt-4">
-                <button type="button" class="btn btn-secondary flex-1 text-xs" style="font-size:10px; padding:4px 6px;" onclick="document.getElementById('ttScope').value='user.info.basic,video.publish'">Standard (video.publish)</button>
-                <button type="button" class="btn btn-secondary flex-1 text-xs" style="font-size:10px; padding:4px 6px;" onclick="document.getElementById('ttScope').value='user.info.basic'">Basic (user.info.basic)</button>
+              <label class="form-label" style="font-size:11px; opacity:0.7;">Giriş ve İzin Tipi (Scope)</label>
+              <input type="text" id="ttScope" value="video.publish" placeholder="video.publish veya user.info.basic,video.publish" style="font-size:12px; margin-bottom:6px;">
+              <div class="flex gap-4" style="flex-wrap:wrap; margin-bottom:6px;">
+                <button type="button" class="btn btn-secondary flex-1 text-xs" style="font-size:10px; padding:4px 6px;" onclick="document.getElementById('ttScope').value='video.publish'">video.publish</button>
+                <button type="button" class="btn btn-secondary flex-1 text-xs" style="font-size:10px; padding:4px 6px;" onclick="document.getElementById('ttScope').value='user.info.basic,video.publish'">user.info.basic,video.publish</button>
+                <button type="button" class="btn btn-secondary flex-1 text-xs" style="font-size:10px; padding:4px 6px;" onclick="document.getElementById('ttScope').value='video.upload'">video.upload</button>
+                <button type="button" class="btn btn-secondary flex-1 text-xs" style="font-size:10px; padding:4px 6px;" onclick="document.getElementById('ttScope').value='user.info.basic'">user.info.basic</button>
               </div>
+              <div class="flex items-center gap-8" style="font-size:11px; color:#94A3B8; margin-top:4px;">
+                <span>Scope Formatı:</span>
+                <select id="ttScopeFmt" style="font-size:11px; padding:2px 6px; background:#0F172A; color:#E2E8F0; border:1px solid rgba(255,255,255,0.1); border-radius:4px;">
+                  <option value="comma" selected>Virgül (,) — TikTok v2 Standart</option>
+                  <option value="encoded_comma">Encoded (%2C)</option>
+                  <option value="space">Boşluk (%20)</option>
+                </select>
+              </div>
+              <div style="font-size:10px; color:#F59E0B; margin-top:4px;">💡 Not: TikTok Portalınızda hangi izni eklediyseniz onu seçin. "Scope" hatası alırsanız sırayla yukarıdaki butonları deneyin.</div>
             </div>
+
+            <!-- Login Action Button -->
             <div class="mt-8 mb-8 flex flex-col gap-4">
-              <button type="button" class="btn btn-secondary btn-full" id="btnTtAuth" onclick="startTikTokAuthWizard('browser')" style="background:rgba(59,130,246,0.15); border-color:rgba(59,130,246,0.4); color:#93C5FD;">🔐 TikTok ile Giriş Yap (Google / TikTok Hesabı)</button>
-              <div style="font-size:11px; color:#64748B; text-align:center; margin-top:-4px;">🔒 Güvenli giriş — Sistem tarayıcınız açılır, Google & TikTok girişi desteklenir. Token otomatik alınır.</div>
+              <button type="button" class="btn btn-primary btn-full" id="btnTtAuth" onclick="startTikTokAuthWizard()" style="background:linear-gradient(135deg, #25F4EE, #FE2C55); border:none; color:#000; font-weight:700; font-size:14px; padding:10px;">🔐 TikTok İle Otomatik Giriş Yap (Sistem Tarayıcısı)</button>
+              <div style="font-size:11px; color:#64748B; text-align:center; margin-top:-4px;">🔒 Sistem tarayıcınızda açılır. İzin onaylandıktan sonra hesabınız otomatik bağlanır.</div>
               <div id="ttAuthStatus" style="display:none; text-align:center; margin-top:8px; padding:10px; border-radius:8px; background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.3);">
                 <span style="display:inline-block; width:14px; height:14px; border:2px solid rgba(59,130,246,0.3); border-top-color:#3B82F6; border-radius:50%; animation:spin 0.8s linear infinite; vertical-align:middle; margin-right:8px;"></span>
-                <span style="color:#93C5FD; font-size:13px;">Tarayıcıda giriş bekleniyor... Giriş sonrası token otomatik alınacak.</span>
+                <span style="color:#93C5FD; font-size:13px;" id="ttAuthStatusMsg">Tarayıcıda TikTok hesabı bekleniyor...</span>
               </div>
             </div>
-            <div class="divider"></div>
-            <div>
-              <label class="form-label">TikTok Open ID (Otomatik Dolar / Manuel)</label>
-              <input type="text" id="ttOpenId" placeholder="TikTok Open ID">
-            </div>
-            <div>
-              <label class="form-label">TikTok Access Token (Content Posting API Token)</label>
-              <div class="flex gap-4">
-                <input type="password" id="ttAccessToken" placeholder="Content Posting API Token" style="flex:1;">
-                <button type="button" class="btn btn-secondary" onclick="togglePasswordVisibility('ttAccessToken')" style="padding:4px 12px;">👁️</button>
+
+            <!-- Manuel Access Token & Open ID Giris Kutusu -->
+            <div style="background:rgba(30,41,59,0.6); border:1px dashed rgba(56,189,248,0.3); border-radius:8px; padding:12px; margin-bottom:12px;">
+              <div style="font-size:12px; font-weight:700; color:#38BDF8; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
+                <span>✍️ VEYA MANUEL ACCESS TOKEN YAPIŞTIR</span>
+                <span style="font-size:10px; background:#0F172A; padding:2px 6px; border-radius:4px; color:#94A3B8;">Önerilen Pratik Yöntem</span>
+              </div>
+              <div class="flex flex-col gap-6">
+                <div>
+                  <label class="form-label" style="font-size:10px; color:#CBD5E1;">TikTok Access Token (act...)</label>
+                  <input type="password" id="ttAccessToken" placeholder="act.123..." style="font-size:11px; padding:6px 10px; border-color:rgba(56,189,248,0.2);">
+                </div>
+                <div>
+                  <label class="form-label" style="font-size:10px; color:#CBD5E1;">Open ID (_000... - İsteğe Bağlı)</label>
+                  <input type="text" id="ttOpenId" placeholder="_000123..." style="font-size:11px; padding:6px 10px; border-color:rgba(56,189,248,0.2);">
+                </div>
+                <button type="button" class="btn btn-secondary" onclick="saveManualTikTokToken()" style="font-size:12px; font-weight:600; padding:8px; background:#0F172A; border-color:#38BDF8; color:#38BDF8; width:100%;">💾 TikTok Token'ı Doğrudan Kaydet</button>
               </div>
             </div>
+
+            <!-- Profile & Connection Status Card -->
+            <div id="ttProfileCard" style="background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.12); border-radius:10px; padding:14px; margin-top:8px;">
+              <div class="flex items-center justify-between" style="border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:10px; margin-bottom:10px;">
+                <div class="flex items-center gap-8">
+                  <div id="ttAvatarBox" style="width:40px; height:40px; border-radius:50%; background:#1E293B; display:flex; align-items:center; justify-content:center; font-size:20px; color:#FE2C55;">🎵</div>
+                  <div>
+                    <div id="ttDisplayName" style="font-weight:700; font-size:14px; color:#F8FAFC;">Henüz Bağlanmadı</div>
+                    <div id="ttUsername" style="font-size:12px; color:#38BDF8;">@kullanici_adi</div>
+                  </div>
+                </div>
+                <span id="ttBadgeStatus" class="status-dot unknown" style="width:12px; height:12px;"></span>
+              </div>
+
+              <!-- Sistemdeki Kayıtlı Token ve ID Bilgileri (Kopyalanabilir) -->
+              <div style="display:flex; flex-direction:column; gap:8px; font-size:11px; color:#CBD5E1;">
+                <div>
+                  <div style="font-weight:600; color:#94A3B8; margin-bottom:2px;">🔑 Kayıtlı Access Token (Tam Metin):</div>
+                  <div class="flex gap-4">
+                    <input type="text" id="ttFullAccessTokenDisplay" readonly placeholder="Sistemde henüz token yok..." style="font-size:11px; padding:4px 8px; background:#0F172A; color:#10B981; border:1px solid rgba(16,185,129,0.3); font-family:monospace; flex:1;">
+                    <button type="button" class="btn btn-secondary" onclick="navigator.clipboard.writeText(document.getElementById('ttFullAccessTokenDisplay').value); alert('📋 Access Token panoya kopyalandı!');" style="font-size:10px; padding:2px 8px;">📋 Kopyala</button>
+                  </div>
+                </div>
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                  <div>
+                    <div style="font-weight:600; color:#94A3B8; margin-bottom:2px;">🆔 Open ID:</div>
+                    <input type="text" id="ttFullOpenIdDisplay" readonly placeholder="—" style="font-size:11px; padding:4px 8px; background:#0F172A; color:#F59E0B; border:1px solid rgba(245,158,11,0.3); font-family:monospace; width:100%;">
+                  </div>
+                  <div>
+                    <div style="font-weight:600; color:#94A3B8; margin-bottom:2px;">🔄 Refresh Token:</div>
+                    <input type="text" id="ttFullRefreshTokenDisplay" readonly placeholder="—" style="font-size:11px; padding:4px 8px; background:#0F172A; color:#60A5FA; border:1px solid rgba(96,165,250,0.3); font-family:monospace; width:100%;">
+                  </div>
+                </div>
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:4px;">
+                  <div>Bağlantı Durumu: <strong id="ttInfoConnStatus" style="color:#94A3B8;">Giriş Yapılmadı</strong></div>
+                  <div>Token Bitiş Tarihi: <strong id="ttInfoExpiresAt" style="color:#94A3B8;">—</strong></div>
+                </div>
+              </div>
+
+              <div class="flex gap-8 mt-12">
+                <button type="button" class="btn btn-secondary flex-1 text-xs" onclick="testTikTokConnection()" style="font-size:11px;">⚡ Bağlantıyı Test Et</button>
+                <button type="button" class="btn btn-secondary flex-1 text-xs" onclick="resetTikTokConnection()" style="font-size:11px; color:#EF4444; border-color:rgba(239,68,68,0.3);">🗑️ Bağlantıyı Sıfırla</button>
+              </div>
+            </div>
+
+            <!-- Hidden Inputs for Sync/Persistence compatibility -->
+            <input type="hidden" id="ttScope" value="user.info.basic,video.upload">
+            <input type="hidden" id="ttOpenId">
+            <input type="hidden" id="ttAccessToken">
+            <input type="hidden" id="ttRefreshToken">
           </div>
         </div>
 

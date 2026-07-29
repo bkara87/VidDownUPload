@@ -27,13 +27,14 @@ def get_git_token():
             text=True
         )
         stdout, _ = p.communicate(
-            input='protocol=https\nhost=github.com\nusername=bkara87\n\n'
+            input='protocol=https\nhost=github.com\n\n',
+            timeout=5
         )
         for line in stdout.splitlines():
             if line.startswith('password='):
                 return line.split('password=')[1]
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[!] Credential fetch note: {e}")
     return os.environ.get("GITHUB_TOKEN")
 
 def publish_release(token=None):
@@ -53,22 +54,22 @@ def publish_release(token=None):
     if not setup_exe.exists():
         print(f"[HATA] Setup EXE bulunamadı: {setup_exe}")
         sys.exit(1)
-    print(f"[OK] Setup EXE hazır: {setup_exe} ({setup_exe.stat().st_size // (1024*1024):.1f} MB)")
+    print(f"[OK] Setup EXE hazır: {setup_exe} ({setup_exe.stat().st_size / (1024*1024):.1f} MB)")
 
     # 2. Git Commit and Push to main
     print("\n[ 2/4 ] GitHub'a Push Ediliyor (main branch)...")
     subprocess.run(["git", "add", "."], check=True)
     subprocess.run(
         ["git", "commit", "-m",
-         f"Release {tag_name}: Ultra premium UI, YouTube/TikTok/Facebook/Threads API, FFmpeg HQ, debounce optimizasyon"],
+         f"Release {tag_name}: TikTok OAuth güvenli giriş & sistem tarayıcısı entegrasyonu"],
         check=False
     )
     subprocess.run(["git", "push", "-u", "origin", "main"], check=True)
 
     # 3. Create & Push Git Tag
     print(f"\n[ 3/4 ] Git Tag Oluşturuluyor: {tag_name}...")
-    subprocess.run(["git", "tag", "-a", tag_name, "-m", f"Release {tag_name}"], check=False)
-    subprocess.run(["git", "push", "origin", tag_name], check=False)
+    subprocess.run(["git", "tag", "-f", "-a", tag_name, "-m", f"Release {tag_name}"], check=False)
+    subprocess.run(["git", "push", "-f", "origin", tag_name], check=False)
 
     # 4. GitHub API — Create Release & Upload EXE
     github_token = token or get_git_token()
