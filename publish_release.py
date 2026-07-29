@@ -6,6 +6,13 @@ import subprocess
 import requests
 from pathlib import Path
 
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 BASE_DIR = Path(__file__).parent
 VERSION = "2.1.0"
 
@@ -134,7 +141,7 @@ def publish_release(token=None):
             print(f"[OK] GitHub Release oluşturuldu: {rel_info.get('html_url')}")
 
             # Upload Setup EXE asset (streaming — no full RAM load)
-            print(f"[↑] Upload ediliyor: {setup_exe.name} ({setup_exe.stat().st_size // (1024*1024):.1f} MB)...")
+            print(f"[^] Upload ediliyor: {setup_exe.name} ({setup_exe.stat().st_size / (1024*1024):.1f} MB)...")
             with open(setup_exe, "rb") as f:
                 u_headers = headers.copy()
                 u_headers["Content-Type"] = "application/octet-stream"
@@ -158,7 +165,7 @@ def publish_release(token=None):
         print("       Ya da: python publish_release.py <GITHUB_TOKEN>")
 
     print(f"\n{'='*60}")
-    print(f"  ✅ {tag_name} YAYINLAMA TAMAMLANDI!")
+    print(f"  [OK] {tag_name} YAYINLAMA TAMAMLANDI!")
     print(f"{'='*60}\n")
 
 if __name__ == "__main__":
